@@ -40,7 +40,7 @@ void DataReader(std::istream& input, Catalogue& catalogue) {
     
     // Разбор информации об остановке из строки запроса
     for (auto& requests : stop_requests) {
-        auto [stop_title, coord, query] = transport::processing::ParseStop(requests);
+        auto [stop_title, coord, query] = processing::ParseStop(requests);
         
         // Сохранение строки для дальнейшей работы
         if (!query.empty()) {
@@ -75,11 +75,12 @@ std::tuple<std::string, geo::Coordinates, std::string> ParseStop(std::string& re
     
     // Извлечение названия остановки между символом пробела и двоеточием
     std::string stop_title = requests.substr(pos, requests.find(':') - pos);
-    // Сдвиг позиции на длинну извлеченного слова
+    // Сдвиг позиции на длинну извлеченных данных
     pos += stop_title.length() + 2; // Включая двоеточие и символ пробела
     
     // Извлечение координаты широты между символом пробела и запятой
     std::string latit = requests.substr(pos, requests.find(',', pos) - pos);
+    // Сдвиг позиции на длинну извлеченных данных
     pos += latit.length() + 2; // Включая запятую и символ пробела
     
     // Извлечение координаты долготы
@@ -91,6 +92,7 @@ std::tuple<std::string, geo::Coordinates, std::string> ParseStop(std::string& re
         requests.clear();
     } else { // После координаты есть данные
         longit = requests.substr(pos, requests.find(',', pos) - pos);
+        // Сдвиг позиции на длинну извлеченных данных
         pos += longit.length() + 2; // Включая запятую и символ пробела
         // Удаляем обработанные данные для дальнейшей работы со строкой
         requests.erase(0, pos);
@@ -146,7 +148,7 @@ std::tuple<std::string, std::vector<std::string>, bool> ParseRoute(std::string& 
 */
 
 void ParseDistance(const std::string& stop_title, std::string& requests, Catalogue& catalogue) {
-    Stop* current = const_cast<Stop*>(catalogue.FindStop(stop_title));
+    const Stop* current = catalogue.FindStop(stop_title);
     Stop* next;
     int distance = 0;
     
@@ -168,7 +170,7 @@ void ParseDistance(const std::string& stop_title, std::string& requests, Catalog
             next = const_cast<Stop*>(catalogue.FindStop(requests.substr(pos)));
             
             // Добавление расстояния между остановками в справочник
-            catalogue.SetStopsDistance(current, next, distance);
+            catalogue.SetStopsDistance(*current, *next, distance);
             
             requests.clear();
         } else {
@@ -176,9 +178,9 @@ void ParseDistance(const std::string& stop_title, std::string& requests, Catalog
             next = const_cast<Stop*>(catalogue.FindStop(requests.substr(pos, requests.find(','))));
             
             // Добавление расстояния между остановками в справочник
-            catalogue.SetStopsDistance(current, next, distance);
-            if (catalogue.GetStopsDistance(next, current) == 0) {
-                catalogue.SetStopsDistance(next, current, distance);
+            catalogue.SetStopsDistance(*current, *next, distance);
+            if (catalogue.GetStopsDistance(*next, *current) == 0) {
+                catalogue.SetStopsDistance(*next, *current, distance);
             }
             
             // Удаление обработанных данных из строки

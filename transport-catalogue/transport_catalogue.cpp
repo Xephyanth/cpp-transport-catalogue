@@ -38,17 +38,17 @@ void Catalogue::AddRoute(const std::string& number, const std::vector<std::strin
 }
 
 // Поиск маршрута
-const Bus* Catalogue::FindRoute(const std::string& bus_number) const {
+const Bus* Catalogue::FindRoute(const std::string_view bus_number) const {
     return all_bus_.count(bus_number) ? all_bus_.at(bus_number) : nullptr;
 }
 
 // Поиск остановки
-const Stop* Catalogue::FindStop(const std::string& stop_title) const {
+const Stop* Catalogue::FindStop(const std::string_view stop_title) const {
     return all_stop_.count(stop_title) ? all_stop_.at(stop_title) : nullptr;
 }
 
 // Получение информации о маршруте
-const Route Catalogue::FindInformation(const std::string& bus_number) {
+const Route Catalogue::FindInformation(const std::string_view bus_number) {
     // Результирующий набор
     Route route_information_result;
     // Переменная для длины маршрута
@@ -63,21 +63,27 @@ const Route Catalogue::FindInformation(const std::string& bus_number) {
         throw std::invalid_argument("Bus number doesn't exist"s);
     }
     
-    // Вычисление кол-ва остановок на маршруте в зависимости от того, является он круговым или нет
-    route_information_result.number_of_stops = bus->is_circular ? bus->stops_on_route.size() : bus->stops_on_route.size() * 2 - 1;
+    const auto& stops_count = bus->stops_on_route.size();
     
-    for (size_t i = 0; i < bus->stops_on_route.size() - 1; ++i) {
+    if (stops_count == 0) {
+        throw std::invalid_argument("The route has no stops"s);
+    }
+    
+    // Вычисление кол-ва остановок на маршруте в зависимости от того, является он круговым или нет
+    route_information_result.number_of_stops = bus->is_circular ? stops_count : stops_count * 2 - 1;
+    
+    for (size_t i = 0; i < stops_count - 1; ++i) {
         // Получение текущей и слеюущей остановки маршрута
-        const Stop* current_stop = all_stop_.at(bus->stops_on_route.at(i));
-        const Stop* next_stop = all_stop_.at(bus->stops_on_route.at(i + 1));
+        const Stop& current_stop = *all_stop_.at(bus->stops_on_route.at(i));
+        const Stop& next_stop = *all_stop_.at(bus->stops_on_route.at(i + 1));
         
         // Вычисление длинны маршрута
         route_length += GetStopsDistance(current_stop, next_stop);
-        geo_route_length += ComputeDistance(current_stop->coordinates, next_stop->coordinates);
+        geo_route_length += ComputeDistance(current_stop.coordinates, next_stop.coordinates);
         
         if (!bus->is_circular) {
             route_length += GetStopsDistance(next_stop, current_stop);
-            geo_route_length += ComputeDistance(next_stop->coordinates, current_stop->coordinates);
+            geo_route_length += ComputeDistance(next_stop.coordinates, current_stop.coordinates);
         }
     }
     
@@ -89,12 +95,12 @@ const Route Catalogue::FindInformation(const std::string& bus_number) {
 }
 
 // Получение списка автобусов по остановке
-const std::set<std::string> Catalogue::FindBusesByStop(const std::string& stop_title) {
+const std::set<std::string> Catalogue::FindBusesByStop(const std::string_view stop_title) {
     return all_stop_.at(stop_title)->buses_on_stop;
 }
 
 // Поиск уникальных 
-size_t Catalogue::UniqueStopsFind(const std::string& bus_number) {
+size_t Catalogue::UniqueStopsFind(const std::string_view bus_number) {
     std::unordered_set<std::string> unique_stops;
     
     for (const auto& stop : all_bus_.at(bus_number)->stops_on_route) {
@@ -105,19 +111,19 @@ size_t Catalogue::UniqueStopsFind(const std::string& bus_number) {
 }
 
 // Установить расстояние между двумя остановками
-void Catalogue::SetStopsDistance(Stop* current, Stop* next, int distance) {
-    distance_between_stops[std::make_pair(current, next)] = distance;
+void Catalogue::SetStopsDistance(const Stop& current, const Stop& next, int distance) {
+    distance_between_stops[std::make_pair(&current, &next)] = distance;
 }
 
 // Получение расстояния между двумя остановками
-int Catalogue::GetStopsDistance(const Stop* current, const Stop* next) const {
-    auto it = distance_between_stops.find(std::make_pair(current, next));
+int Catalogue::GetStopsDistance(const Stop& current, const Stop& next) const {
+    auto it = distance_between_stops.find(std::make_pair(&current, &next));
     if (it != distance_between_stops.end()) {
         return it->second;
     }
     
     // Если расстояние от остановки `x` до остановки `y` не было найдено, поиск расстояния от `y` до `x`
-    it = distance_between_stops.find(std::make_pair(next, current));
+    it = distance_between_stops.find(std::make_pair(&next, &current));
     if (it != distance_between_stops.end()) {
         return it->second;
     }

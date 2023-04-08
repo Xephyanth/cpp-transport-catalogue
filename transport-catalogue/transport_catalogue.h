@@ -40,6 +40,8 @@ struct Route {
     double curvature;
 };
 
+namespace detail {
+    
 struct StopPairHasher {
 public:
     size_t operator()(const std::pair<const Stop*, const Stop*>& stop_pair) const {
@@ -54,6 +56,8 @@ public:
     }
 };
 
+} // end of namespace detail
+
 class Catalogue {
 public:
     // Добавление остановки
@@ -61,19 +65,19 @@ public:
     // Добавление маршрута
     void AddRoute(const std::string& number, const std::vector<std::string>& stops, bool circular);
     // Поиск остановки
-    const Stop* FindStop(const std::string& title) const;
+    const Stop* FindStop(const std::string_view title) const;
     // Поиск маршрута
-    const Bus* FindRoute(const std::string& number) const;
+    const Bus* FindRoute(const std::string_view number) const;
     // Получение информации о маршруте
-    const Route FindInformation(const std::string& number);
+    const Route FindInformation(const std::string_view number);
     // Получение списка автобусов по остановке
-    const std::set<std::string> FindBusesByStop(const std::string& title);
+    const std::set<std::string> FindBusesByStop(const std::string_view title);
     // Поиск уникальных остановок
-    size_t UniqueStopsFind(const std::string& bus_number);
+    size_t UniqueStopsFind(const std::string_view bus_number);
     // Задание дистанции между остановками
-    void SetStopsDistance(Stop* current, Stop* next, int distance);
+    void SetStopsDistance(const Stop& current, const Stop& next, int distance);
     // Получение дистанции между остановками
-    int GetStopsDistance(const Stop* current, const Stop* next) const;
+    int GetStopsDistance(const Stop& current, const Stop& next) const;
     
 private:
     // Список всех остановок
@@ -83,7 +87,7 @@ private:
     std::deque<Bus> buses_;
     std::unordered_map<std::string_view, const Bus*> all_bus_;
     // Пары остановок с указанием расстояния между ними
-    std::unordered_map<std::pair<const Stop*, const Stop*>, int, StopPairHasher> distance_between_stops;
+    std::unordered_map<std::pair<const Stop*, const Stop*>, int, detail::StopPairHasher> distance_between_stops;
 };
 
 } // end of namespace transport
