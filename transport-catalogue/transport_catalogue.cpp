@@ -1,135 +1,149 @@
 #include "transport_catalogue.h"
 
-#include <stdexcept>
-#include <unordered_set>
-
-using std::literals::string_literals::operator""s;
-
 namespace transport {
 
-// Добавление остановки
-void Catalogue::AddStop(const std::string& stop_title, geo::Coordinates& coordinates) {
-    // Создание новой остановки в списке всех остановок
-    stops_.emplace_back(Stop{ stop_title, coordinates, {} });
-    // Получение ссылки на созданный объект
-    auto& new_stop = stops_.back();
-    // Добавление остановку 
-    all_stop_.emplace(stops_.back().stop_title, &new_stop);
+// Метод добавления новой остановки в каталог
+void Catalogue::AddStop(const std::string_view title, geo::Coordinates coords, std::vector<std::pair<std::string, int>>& stops_distance) {
+    // Создание и добавление новой остановки
+	const auto& stop = stops_.emplace_back(Stop{ std::string(title), coords,  stops_distance });
+    // Добавление указателя на новую остановку
+	all_stops_.insert({ stop.stop_title, &stop });
+    // Создание и добавление пустого списка автобусов для каждой остановки
+	buses_by_stop_[&stop];
 }
 
-// Добавление маршрута
-void Catalogue::AddRoute(const std::string& number, const std::vector<std::string>& stops, bool circular) {
-    // Создание нового автобуса в списке всех автобусов
-    buses_.emplace_back(Bus{ number, stops, circular });
-    // Получение ссылки на созданный объект
-    auto& new_bus = buses_.back();
-    // Добавление автобуса
-    all_bus_.emplace(buses_.back().bus_number, &new_bus);
+// Метод добавления новой остановки в каталог
+void Catalogue::AddRoute(const std::string_view& number, const std::vector<std::string_view>& stops, bool circular) {
+    // Создаем вектор указателей на остановки для маршрута
+	std::vector<const Stop*> route_stops;
+	route_stops.reserve(stops.size());
     
-    // Цикл по остановкам - std::vector<std::string>& stops
-    for (const auto& stop : stops) {
-        // Цикл по всем остановкам - std::deque<Stop> stops_;
-        for (auto& stop_ : stops_) {
-            if (stop_.stop_title == stop) {
-                stop_.buses_on_stop.emplace(number);
-            }
-        }
+    // Добавляем новый маршрут в список маршрутов
+	auto& route = buses_.emplace_back(Bus{ std::string(number), route_stops, circular });
+    // Добавляем маршрут в список всех маршрутов по номеру
+	all_buses_.insert({ route.bus_number, &route });
+    
+    // Для каждой остановки на маршруте
+	for (const auto& stop : stops) {
+        // Находим указатель на остановку в каталоге
+		const auto* stop_ptr = FindStop(stop);
+        // Добавляем остановку в список остановок маршрута
+		route.stops.push_back(stop_ptr);
+        // Добавляем маршрут в список маршрутов, проходящих через эту остановку
+		buses_by_stop_[stop_ptr].insert(FindRoute(number));
+	}
+}
+
+// Метод поиска автобусного маршрута по номеру
+const Bus* Catalogue::FindRoute(const std::string_view& number) const {
+    // Ищем маршрут в списке, используя номер в качестве ключа
+	const auto it = all_buses_.find(number);
+    
+	if (it == all_buses_.end()) {
+		return nullptr;
+	} else { 
+		return it->second;
+	}
+}
+
+// Метод поиска остановки по названию
+const Stop* Catalogue::FindStop(const std::string_view& title) const {
+    // Ищем остановку в списке, используя название в качестве ключа
+	const auto it = all_stops_.find(title);
+    
+	if (it == all_stops_.end()) {
+		return nullptr;
+	} else {
+		return it->second;
+	}
+}
+
+// Метод возвращает указатель, который содержит указатели на все объекты
+const std::unordered_set<const Bus*>* Catalogue::GetStopInfo(const std::string_view& title) const {
+	if (FindStop(title)) {
+		return &buses_by_stop_.at(FindStop(title));
+	} else {
+		return nullptr;
+	}
+}
+    
+// Метод установления расстояния между остановками
+void Catalogue::SetStopsDistance(const Stop* current, const Stop* next, int distance) {
+    // Создание пары остановок, состоящей из текущей и следующей остановки
+	auto stops_pair = std::make_pair(current, next);
+    // Установка расстояния между текущей и следующей остановкой
+	distance_between_stops_[stops_pair] = distance;
+}
+
+// Метод получения расстояния между остановками
+size_t Catalogue::GetStopsDistance(const Stop* current, const Stop* next) const {
+    // Создание пары из текущей и следующей остановок
+	auto stops_pair = std::make_pair(current, next);
+    
+    // Поиск расстояния от `x` до `y`
+	if (distance_between_stops_.find(stops_pair) != distance_between_stops_.end()) {
+		return distance_between_stops_.at(stops_pair);
+	}
+    
+    // Поиск расстояния от `y` до `x`
+	return GetStopsDistance(next, current);
+}
+
+// Метод возвращает список всех маршрутов
+const std::map <std::string_view, const Bus*> Catalogue::GetAllRoutes() const {
+	std::map<std::string_view, const Bus*> result;
+    
+	for (const auto& route : buses_) {
+		result[route.bus_number] = &route;
+	}
+    
+	return result;
+}
+
+// Метод возвращает ионфрмацию о маршруте
+const std::optional<BusRoute> Catalogue::GetRouteInfo(const std::string_view& bus_name) const {
+	BusRoute result;
+    
+    // Получение указателя на объект маршрута по его названию
+    const auto* route = FindRoute(bus_name);
+    
+    // Если маршрут не найден, возврат пустого объекта optional
+    if (route == nullptr) {
+        return {};
     }
-}
 
-// Поиск маршрута
-const Bus* Catalogue::FindRoute(const std::string_view bus_number) const {
-    return all_bus_.count(bus_number) ? all_bus_.at(bus_number) : nullptr;
-}
+    // Список остановок маршрута
+    std::vector<const Stop*> stops_local{ route->stops.begin(), route->stops.end() };
+    // Множество уникальных остановок
+    std::unordered_set<const Stop*> unique_stops;
 
-// Поиск остановки
-const Stop* Catalogue::FindStop(const std::string_view stop_title) const {
-    return all_stop_.count(stop_title) ? all_stop_.at(stop_title) : nullptr;
-}
+    // Добавление всех остановок в множество уникальных остановок
+    std::for_each(stops_local.begin(), stops_local.end(),
+                  [&unique_stops](const auto& stop) {
+                      unique_stops.emplace(stop);
+                  });
 
-// Получение информации о маршруте
-const Route Catalogue::FindInformation(const std::string_view bus_number) {
-    // Результирующий набор
-    Route route_information_result;
-    // Переменная для длины маршрута
-    int route_length = 0.;
-    // Переменная для географического расстояния
-    double geo_route_length = 0.;
-    // Поиск номера автобуса в списке
-    const Bus* bus = FindRoute(bus_number);
-    
-    // Проверка наличия автобуса
-    if (!bus) {
-        throw std::invalid_argument("Bus number doesn't exist"s);
+    // Если маршрут не кольцевой, добавляется обратный путь в список остановок
+    if (!route->is_circular) {
+        stops_local.insert(stops_local.end(), next(route->stops.rbegin()), route->stops.rend());
     }
+
     
-    const auto& stops_count = bus->stops_on_route.size();
-    
-    if (stops_count == 0) {
-        throw std::invalid_argument("The route has no stops"s);
+    double road_route_length = 0;
+    double geo_route_length = 0;
+    // Вычисление длины маршрута как сумма расстояний между остановками
+    for (auto it = stops_local.begin(); it != std::prev(stops_local.end()); ++it) {
+        road_route_length += ComputeDistance((*it)->coords, (*(it + 1))->coords);
+        geo_route_length += GetStopsDistance(*it, *(it + 1));
     }
+
+    result.name = route->bus_number;
+    result.stops = int(stops_local.size());
+    result.unique_stops = int(unique_stops.size());
+    result.route_length = geo_route_length;
+    result.curvature = geo_route_length / road_route_length;
     
-    // Вычисление кол-ва остановок на маршруте в зависимости от того, является он круговым или нет
-    route_information_result.number_of_stops = bus->is_circular ? stops_count : stops_count * 2 - 1;
-    
-    for (size_t i = 0; i < stops_count - 1; ++i) {
-        // Получение текущей и слеюущей остановки маршрута
-        const Stop& current_stop = *all_stop_.at(bus->stops_on_route.at(i));
-        const Stop& next_stop = *all_stop_.at(bus->stops_on_route.at(i + 1));
-        
-        // Вычисление длинны маршрута
-        route_length += GetStopsDistance(current_stop, next_stop);
-        geo_route_length += ComputeDistance(current_stop.coordinates, next_stop.coordinates);
-        
-        if (!bus->is_circular) {
-            route_length += GetStopsDistance(next_stop, current_stop);
-            geo_route_length += ComputeDistance(next_stop.coordinates, current_stop.coordinates);
-        }
-    }
-    
-    route_information_result.unique_number_of_stops = UniqueStopsFind(bus_number);
-    route_information_result.length = route_length;
-    route_information_result.curvature = route_length / geo_route_length;
-    
-    return route_information_result;
+    return result;
 }
 
-// Получение списка автобусов по остановке
-const std::set<std::string> Catalogue::FindBusesByStop(const std::string_view stop_title) {
-    return all_stop_.at(stop_title)->buses_on_stop;
-}
-
-// Поиск уникальных 
-size_t Catalogue::UniqueStopsFind(const std::string_view bus_number) {
-    std::unordered_set<std::string> unique_stops;
-    
-    for (const auto& stop : all_bus_.at(bus_number)->stops_on_route) {
-        unique_stops.insert(stop);
-    }
-    
-    return unique_stops.size();
-}
-
-// Установить расстояние между двумя остановками
-void Catalogue::SetStopsDistance(const Stop& current, const Stop& next, int distance) {
-    distance_between_stops[std::make_pair(&current, &next)] = distance;
-}
-
-// Получение расстояния между двумя остановками
-int Catalogue::GetStopsDistance(const Stop& current, const Stop& next) const {
-    auto it = distance_between_stops.find(std::make_pair(&current, &next));
-    if (it != distance_between_stops.end()) {
-        return it->second;
-    }
-    
-    // Если расстояние от остановки `x` до остановки `y` не было найдено, поиск расстояния от `y` до `x`
-    it = distance_between_stops.find(std::make_pair(&next, &current));
-    if (it != distance_between_stops.end()) {
-        return it->second;
-    }
-    
-    // Если расстояние не было найдено ни в одном из направлений
-    return 0;
-}
-
-} // end of namespace transport
+} // end of namesapce transport

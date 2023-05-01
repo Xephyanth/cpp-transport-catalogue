@@ -1,16 +1,16 @@
-#include "input_reader.h"
-#include "stat_reader.h"
+#include "json_reader.h"
+#include "request_handler.h"
+#include "map_renderer.h"
 
 #include <iostream>
 
-using namespace transport;
+using namespace std;
 
 int main() {
-    Catalogue catalogue;
+    transport::Catalogue db;
+    transport::MapRenderer renderer;
     
-    DataReader(std::cin, catalogue);
+    transport::JsonReader input(std::cin, &db, &renderer);
     
-    DataOutput(std::cout, catalogue);
-    
-    return 0;
+    input.DatabaseRespond(std::cout);
 }

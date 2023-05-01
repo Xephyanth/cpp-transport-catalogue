@@ -1,93 +1,71 @@
 #pragma once
 
-#include "geo.h"
+#include "domain.h"
 
-#include <string>
-#include <string_view>
-#include <vector>
 #include <deque>
+#include <map>
 #include <unordered_map>
-#include <set>
+#include <unordered_set>
+#include <string_view>
+#include <algorithm>
+#include <optional>
 
 namespace transport {
 
-struct Stop {
-    // Название остановки
-    std::string stop_title;
-    // Координаты остановки
-    geo::Coordinates coordinates;
-    // Список автобусов
-    std::set<std::string> buses_on_stop;
-};
-
-struct Bus {
-    // Номер/название автобуса
-    std::string bus_number;
-    // Список остановок на маршруте
-    std::vector<std::string> stops_on_route;
-    // Признак кругового маршрута
-    bool is_circular;
-};
-
-struct Route {
-    // Длина маршрута
-    double length;
-    // Количество остановок в маршруте автобуса
-    size_t number_of_stops;
-    // Количество уникальных остановок
-    size_t unique_number_of_stops;
-    // Извилистость маршрута
-    double curvature;
-};
-
-namespace detail {
-    
 struct StopPairHasher {
 public:
-    size_t operator()(const std::pair<const Stop*, const Stop*>& stop_pair) const {
-        const void* ptr1 = static_cast<const void*>(stop_pair.first);
+	size_t operator() (const std::pair<const Stop*, const Stop*> stop_pair) const {
+		const void* ptr1 = static_cast<const void*>(stop_pair.first);
         const void* ptr2 = static_cast<const void*>(stop_pair.second);
-        
+
         std::size_t h1 = std::hash<const void*>{}(ptr1);
         std::size_t h2 = std::hash<const void*>{}(ptr2);
-        
-        // Объединение двух значений, используя хэш-функцию
-        return h1 * 1 + h2 * 37;
-    }
-};
 
-} // end of namespace detail
+        // Объединение двух значений, используя хэш-функцию
+        return h1 + h2 * multiplier;
+	}
+    
+private:
+    int multiplier = 31;
+};
 
 class Catalogue {
 public:
     // Добавление остановки
-    void AddStop(const std::string& title, geo::Coordinates& coordinates);
+	void AddStop(const std::string_view title, geo::Coordinates coords, std::vector<std::pair<std::string, int>>& stops_distance);
     // Добавление маршрута
-    void AddRoute(const std::string& number, const std::vector<std::string>& stops, bool circular);
-    // Поиск остановки
-    const Stop* FindStop(const std::string_view title) const;
-    // Поиск маршрута
-    const Bus* FindRoute(const std::string_view number) const;
-    // Получение информации о маршруте
-    const Route FindInformation(const std::string_view number);
-    // Получение списка автобусов по остановке
-    const std::set<std::string> FindBusesByStop(const std::string_view title);
-    // Поиск уникальных остановок
-    size_t UniqueStopsFind(const std::string_view bus_number);
-    // Задание дистанции между остановками
-    void SetStopsDistance(const Stop& current, const Stop& next, int distance);
-    // Получение дистанции между остановками
-    int GetStopsDistance(const Stop& current, const Stop& next) const;
+	void AddRoute(const std::string_view& number, const std::vector<std::string_view>& stops, bool circular);
     
+    // Поиск остановки
+	const Stop* FindStop(const std::string_view& title) const;
+    // Поиск маршрута
+    const Bus* FindRoute(const std::string_view& number) const;
+    
+    // Получение информации об остановке
+	const std::unordered_set<const Bus*>* GetStopInfo(const std::string_view& title) const;
+    // Получение информации о маршруте
+	const std::optional<BusRoute> GetRouteInfo(const std::string_view& number) const;
+    
+    // Задание дистанции между остановками
+	void SetStopsDistance(const Stop* current, const Stop* next, int distance);
+    // Получение дистанции между остановками
+	size_t GetStopsDistance(const Stop* current, const Stop* next) const;
+    
+	const std::map<std::string_view, const Bus*> GetAllRoutes() const;
+
 private:
     // Список всех остановок
-    std::deque<Stop> stops_;
-    std::unordered_map<std::string_view, const Stop*> all_stop_;
+	std::deque<Stop> stops_;
+    std::unordered_map<std::string_view, const Stop*> all_stops_;
     // Список всех автобусов
-    std::deque<Bus> buses_;
-    std::unordered_map<std::string_view, const Bus*> all_bus_;
+	std::deque<Bus> buses_;
+    std::unordered_map<std::string_view, const Bus*> all_buses_;
+	
     // Пары остановок с указанием расстояния между ними
-    std::unordered_map<std::pair<const Stop*, const Stop*>, int, detail::StopPairHasher> distance_between_stops;
+	std::unordered_map<std::pair<const Stop*, const Stop*>, double, StopPairHasher> distance_between_stops_;
+    
+	// Список автобусов, проходящих через остановку
+	std::unordered_map<const Stop*, std::unordered_set<const Bus*>> buses_by_stop_;
 };
 
-} // end of namespace transport
+} // end of namesapce transport
