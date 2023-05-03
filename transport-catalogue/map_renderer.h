@@ -94,6 +94,11 @@ public:
 
     // Метод для получения SVG-документа на основе карты маршрутов
     svg::Document GetSVG(const std::map<std::string_view, const Bus*>& routes) const;
+    
+    // Вспомогательная функция для проецирования автобусных маршрутов
+    void FillBuses(const std::map<std::string_view, const Bus*>& routes, SphereProjector projector, svg::Document& result) const;
+    // Вспомогательная функция для проецирования автобусных остановок
+    void FillStops(std::map<std::string_view, const Stop*> unique_stops, SphereProjector projector, svg::Document& result) const;
 
 private:
     // Настройки отрисовки карты

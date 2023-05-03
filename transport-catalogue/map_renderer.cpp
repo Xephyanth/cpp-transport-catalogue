@@ -37,7 +37,16 @@ svg::Document MapRenderer::GetSVG(const std::map<std::string_view, const Bus*>& 
     // Проекция координат на сферу
 	SphereProjector projector(coordinates.begin(), coordinates.end(), render_settings_.width, render_settings_.height, render_settings_.padding);
 
-	size_t counter = 0;
+    // Проецирование автобусных маршрутов и их названий
+	FillBuses(routes, projector, result);
+    // Проецирование автобусных остановок и их названий
+    FillStops(unique_stops, projector, result);
+    
+	return result;
+}
+
+void MapRenderer::FillBuses(const std::map<std::string_view, const Bus*>& routes, SphereProjector projector, svg::Document& result) const {
+    size_t counter = 0;
     // Отрисовка линий маршрута на карте
 	for (const auto& [_, route] : routes) {
         // Пропуск маршрута, если он не имеет остановок
@@ -71,9 +80,8 @@ svg::Document MapRenderer::GetSVG(const std::map<std::string_view, const Bus*>& 
         
 		++counter;
 	}
-
-	counter = 0;
     
+    counter = 0;
     // Отрисовка подписей названий маршрутов
 	for (const auto& [_, route] : routes) {
         // Пропуск маршрутов без остановок
@@ -120,7 +128,9 @@ svg::Document MapRenderer::GetSVG(const std::map<std::string_view, const Bus*>& 
         
 		++counter;
 	}
+}
 
+void MapRenderer::FillStops(std::map<std::string_view, const Stop*> unique_stops, SphereProjector projector, svg::Document& result) const {
     // Отрисовка точек с остановками
 	for (const auto& [_, stop] : unique_stops) {
 		svg::Circle stop_symbol;
@@ -161,8 +171,6 @@ svg::Document MapRenderer::GetSVG(const std::map<std::string_view, const Bus*>& 
 		result.Add(underlayer);
 		result.Add(text);
 	}
-    
-	return result;
 }
 
 } // end of namespace transport

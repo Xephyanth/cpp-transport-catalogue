@@ -1,4 +1,5 @@
 #include "json_reader.h"
+#include "json_builder.h"
 
 #include <vector>
 #include <string>
@@ -12,15 +13,15 @@ JsonReader::JsonReader(std::istream& input, Catalogue* db, MapRenderer* renderer
 	std::vector<std::string> stop_titles;
     
     // Обработка и сохранение всех транспортных остановок
-	for (const auto& base_requests : input_.GetRoot().AsMap().at("base_requests"s).AsArray()) {
-		if (base_requests.AsMap().at("type"s) == "Stop"s) {
+	for (const auto& base_requests : input_.GetRoot().AsDict().at("base_requests"s).AsArray()) {
+		if (base_requests.AsDict().at("type"s) == "Stop"s) {
             // Получение информации
-			auto data = base_requests.AsMap();
+			auto data = base_requests.AsDict();
             
 			auto title = data.at("name"s).AsString();
 			auto geo_lat = data.at("latitude"s).AsDouble();
 			auto geo_lng = data.at("longitude"s).AsDouble();
-			auto distance = data.at("road_distances"s).AsMap();
+			auto distance = data.at("road_distances"s).AsDict();
             
 			stop_titles.push_back(title);
             
@@ -45,10 +46,10 @@ JsonReader::JsonReader(std::istream& input, Catalogue* db, MapRenderer* renderer
 	}
     
     // Добавление автобусных маршрутов
-    for (const auto& base_requests : input_.GetRoot().AsMap().at("base_requests"s).AsArray()) {
-		if (base_requests.AsMap().at("type"s) == "Bus"s) {
+    for (const auto& base_requests : input_.GetRoot().AsDict().at("base_requests"s).AsArray()) {
+		if (base_requests.AsDict().at("type"s) == "Bus"s) {
             // Получение информации
-			auto data = base_requests.AsMap();
+			auto data = base_requests.AsDict();
             
 			const auto& name = data.at("name"s).AsString();
             
@@ -69,8 +70,8 @@ void JsonReader::DatabaseRespond(std::ostream& output) {
 	json::Array respond;
     
     // Цикл по массиву запросов внутри поля stat_requests корневого узла
-	for (const json::Node& request : input_.GetRoot().AsMap().at("stat_requests"s).AsArray()) {
-		std::string type = request.AsMap().at("type"s).AsString();
+	for (const json::Node& request : input_.GetRoot().AsDict().at("stat_requests"s).AsArray()) {
+		std::string type = request.AsDict().at("type"s).AsString();
         
         // Вызов функции вывода информации об объекте
         // Если тип запроса - Маршрут
@@ -97,42 +98,39 @@ void JsonReader::DatabaseRespond(std::ostream& output) {
 
 // Возвращает ответ на запрос с информацией автобусного маршрута
 json::Dict JsonReader::BusRespond(RequestHandler& handler, const json::Node& request) {
-    json::Dict respond;
-
     // Получение информации об автобусе
-    auto bus_info = handler.GetBusStat(request.AsMap().at("name"s).AsString());
+    auto bus_info = handler.GetBusStat(request.AsDict().at("name"s).AsString());
     // Получение идентификатора запроса
-    int request_id = request.AsMap().at("id"s).AsInt();
+    int request_id = request.AsDict().at("id"s).AsInt();
     
     // Если информация о автобусе найдена
     if (bus_info.has_value()) {
         // Добавление к ответу информации
-		respond.emplace("curvature"s, bus_info.value().curvature);
-        respond.emplace("request_id"s, request_id);
-        respond.emplace("route_length"s, bus_info.value().route_length);
-        respond.emplace("stop_count"s, static_cast<int>(bus_info.value().stops));
-        respond.emplace("unique_stop_count"s, static_cast<int>(bus_info.value().unique_stops));
-	} else { // Если информация о автобусе не найдена
-		respond.emplace("request_id"s, request_id);
-		respond.emplace("error_message"s, "not found"s);
+        return json::Builder{}.StartDict()
+            .Key("request_id"s).Value(request_id)
+            .Key("curvature"s).Value(bus_info.value().curvature)
+            .Key("route_length"s).Value(bus_info.value().route_length)
+            .Key("stop_count"s).Value(bus_info.value().stops)
+            .Key("unique_stop_count"s).Value(bus_info.value().unique_stops)
+            .EndDict().Build().AsDict();
 	}
-    
-    return respond;
+    else { // Если информация о автобусе не найдена
+		return json::Builder{}.StartDict()
+            .Key("request_id"s).Value(request_id)
+            .Key("error_message"s).Value("not found"s)
+			.EndDict().Build().AsDict();
+	}
 }
 
 // Возвращает ответ на запрос с информацией транспортной остановки
 json::Dict JsonReader::StopRespond(RequestHandler& handler, const json::Node& request) {
 	// Получаем информацию о маршрутах, проходящих через остановку
-	auto stop_info = handler.GetBusesByStop(request.AsMap().at("name"s).AsString());
+	auto stop_info = handler.GetBusesByStop(request.AsDict().at("name"s).AsString());
     // Получение идентификатора запроса
-	int request_id = request.AsMap().at("id"s).AsInt();
-    
-    json::Dict respond;
+	int request_id = request.AsDict().at("id"s).AsInt();
 
     // Если информация о маршрутах была найдена
     if (stop_info) {
-		respond.emplace("request_id"s, request_id);
-
         // Множество для хранения номеров маршрутов
         std::set<std::string> buses;
         // Добавление номеров маршрутов
@@ -146,22 +144,26 @@ json::Dict JsonReader::StopRespond(RequestHandler& handler, const json::Node& re
         for (auto& bus : buses) {
             buses_array.push_back(bus);
         }
-
-        respond.emplace("buses"s, std::move(buses_array));
-	} else { // Если информация об остановке не найдена
-		respond.emplace("request_id"s, request_id);
-		respond.emplace("error_message"s, "not found"s);
+        
+        return json::Builder{}.StartDict()
+			.Key("request_id"s).Value(request_id)
+			.Key("buses"s).Value(buses_array)
+			.EndDict().Build().AsDict();
 	}
-
-    return respond;
+    else { // Если информация об остановке не найдена
+		return json::Builder{}.StartDict()
+			.Key("request_id"s).Value(request_id)
+			.Key("error_message"s).Value("not found"s)
+			.EndDict().Build().AsDict();
+	}
 }
 
 json::Dict JsonReader::MapImageRespond(RequestHandler& handler, const json::Node& request) {
     // Обработка настроек визуализации
-	RenderSettings render_settings = RendererDataProcessing(input_.GetRoot().AsMap().at("render_settings"s).AsMap());
+	RenderSettings render_settings = RendererDataProcessing(input_.GetRoot().AsDict().at("render_settings"s).AsDict());
     
     // Получение идентификатора запроса
-	int request_id = request.AsMap().at("id"s).AsInt();
+	int request_id = request.AsDict().at("id"s).AsInt();
     
 	renderer_->SetRenderSettings(render_settings);
     
@@ -169,13 +171,12 @@ json::Dict JsonReader::MapImageRespond(RequestHandler& handler, const json::Node
 	std::stringstream stream;
 	handler.RenderMap().Render(stream);
     
-    json::Dict respond;
-
-    respond.emplace("request_id"s, request_id);
-    // Извлечение строки из потока и сохранение в качестве ключа
-    respond.emplace("map"s, stream.str());
-
-    return respond;
+    json::Node result = json::Builder{}.StartDict()
+		.Key("request_id"s).Value(request_id)
+		.Key("map"s).Value(stream.str())
+		.EndDict().Build();
+    
+    return result.AsDict();
 }
 
 RenderSettings JsonReader::RendererDataProcessing(const json::Dict& settings) {

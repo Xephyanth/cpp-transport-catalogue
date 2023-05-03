@@ -3,7 +3,7 @@
 namespace transport {
 
 // Метод добавления новой остановки в каталог
-void Catalogue::AddStop(const std::string_view title, geo::Coordinates coords, std::vector<std::pair<std::string, int>>& stops_distance) {
+void Catalogue::AddStop(const std::string_view title, geo::Coordinates coords, const std::vector<std::pair<std::string, int>>& stops_distance) {
     // Создание и добавление новой остановки
 	const auto& stop = stops_.emplace_back(Stop{ std::string(title), coords,  stops_distance });
     // Добавление указателя на новую остановку
@@ -13,7 +13,7 @@ void Catalogue::AddStop(const std::string_view title, geo::Coordinates coords, s
 }
 
 // Метод добавления новой остановки в каталог
-void Catalogue::AddRoute(const std::string_view& number, const std::vector<std::string_view>& stops, bool circular) {
+void Catalogue::AddRoute(const std::string_view number, const std::vector<std::string_view>& stops, bool circular) {
     // Создаем вектор указателей на остановки для маршрута
 	std::vector<const Stop*> route_stops;
 	route_stops.reserve(stops.size());
@@ -35,7 +35,7 @@ void Catalogue::AddRoute(const std::string_view& number, const std::vector<std::
 }
 
 // Метод поиска автобусного маршрута по номеру
-const Bus* Catalogue::FindRoute(const std::string_view& number) const {
+const Bus* Catalogue::FindRoute(const std::string_view number) const {
     // Ищем маршрут в списке, используя номер в качестве ключа
 	const auto it = all_buses_.find(number);
     
@@ -47,7 +47,7 @@ const Bus* Catalogue::FindRoute(const std::string_view& number) const {
 }
 
 // Метод поиска остановки по названию
-const Stop* Catalogue::FindStop(const std::string_view& title) const {
+const Stop* Catalogue::FindStop(const std::string_view title) const {
     // Ищем остановку в списке, используя название в качестве ключа
 	const auto it = all_stops_.find(title);
     
@@ -59,7 +59,7 @@ const Stop* Catalogue::FindStop(const std::string_view& title) const {
 }
 
 // Метод возвращает указатель, который содержит указатели на все объекты
-const std::unordered_set<const Bus*>* Catalogue::GetStopInfo(const std::string_view& title) const {
+const std::unordered_set<const Bus*>* Catalogue::GetStopInfo(const std::string_view title) const {
 	if (FindStop(title)) {
 		return &buses_by_stop_.at(FindStop(title));
 	} else {
@@ -101,7 +101,7 @@ const std::map <std::string_view, const Bus*> Catalogue::GetAllRoutes() const {
 }
 
 // Метод возвращает ионфрмацию о маршруте
-const std::optional<BusRoute> Catalogue::GetRouteInfo(const std::string_view& bus_name) const {
+const std::optional<BusRoute> Catalogue::GetRouteInfo(const std::string_view bus_name) const {
 	BusRoute result;
     
     // Получение указателя на объект маршрута по его названию
