@@ -2,15 +2,15 @@
 
 namespace json {
 
-// Объявление классов контекстов
-class KeyItemContext;
-class ValueContext;
-class DictItemContext;
-class ArrayItemContext;
-
 class Builder {
 public:
     Builder();
+    
+    // Объявление классов контекстов
+    class KeyItemContext;
+    class ValueContext;
+    class DictItemContext;
+    class ArrayItemContext;
     
     // Задаёт строковое значение ключа для очередной пары ключ-значение
     KeyItemContext Key(std::string key);
@@ -51,13 +51,13 @@ class ItemContext {
 public:
     ItemContext(Builder& builder) : builder_(builder) {}
     
-    KeyItemContext Key(std::string key);
+    Builder::KeyItemContext Key(std::string key);
     Builder& Value(Node value);
     
-    DictItemContext StartDict();
+    Builder::DictItemContext StartDict();
     Builder& EndDict();
     
-    ArrayItemContext StartArray();
+    Builder::ArrayItemContext StartArray();
     Builder& EndArray();
 
 private:
@@ -65,7 +65,7 @@ private:
 };
 
 // Вспомогательный класс ключа
-class KeyItemContext : public ItemContext {
+class Builder::KeyItemContext : public ItemContext {
 public:
     KeyItemContext(Builder& builder) : ItemContext(builder) {}
     
@@ -78,7 +78,7 @@ public:
 };
 
 // Вспомогательный класс значения
-class ValueContext : public ItemContext {
+class Builder::ValueContext : public ItemContext {
 public:
     ValueContext(Builder& builder) : ItemContext(builder) {}
     
@@ -90,7 +90,7 @@ public:
 };
 
 // Вспомогательный класс значения-словаря
-class DictItemContext : public ItemContext {
+class Builder::DictItemContext : public ItemContext {
 public:
     DictItemContext(Builder& builder) : ItemContext(builder) {}
     
@@ -102,7 +102,7 @@ public:
 };
 
 // Вспомогательный класс значения-массива
-class ArrayItemContext : public ItemContext {
+class Builder::ArrayItemContext : public ItemContext {
 public:
     ArrayItemContext(Builder& builder) : ItemContext(builder) {}
     ArrayItemContext Value(Node value) { return ItemContext::Value(std::move(value)); }

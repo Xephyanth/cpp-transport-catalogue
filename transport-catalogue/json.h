@@ -99,7 +99,7 @@ public:
 
         return std::get<Dict>(*this);
     }
-
+    
     bool operator==(const Node& rhs) const {
         return GetValue() == rhs.GetValue();
     }

@@ -9,14 +9,14 @@ Builder::Builder() {
     nodes_stack_.emplace_back(&root_);
 }
 
-KeyItemContext Builder::Key(std::string key) {
+Builder::KeyItemContext Builder::Key(std::string key) {
     // Проверка, что стек не пустой и верхний узел - словарь
     if (!(!nodes_stack_.empty() && nodes_stack_.back()->IsDict())) {
         throw std::logic_error("Key outside the dictionary");
     }
     
     // Создание нового узла с ключем
-    nodes_stack_.emplace_back(&const_cast<Dict&>(nodes_stack_.back()->AsDict())[key]);
+    nodes_stack_.emplace_back(&const_cast<Dict&>(nodes_stack_.back()->AsDict())[std::move(key)]);
     
     return *this;
 }
@@ -29,16 +29,17 @@ Builder& Builder::Value(Node value) {
     
     // Добавление нового элемента в конец массива или замена значения верхнего узла
     if (nodes_stack_.back()->IsArray()) {
-        const_cast<Array&>(nodes_stack_.back()->AsArray()).emplace_back(value);
+        const_cast<Array&>(nodes_stack_.back()->AsArray()).emplace_back(std::move(value));
     } else {
-        *nodes_stack_.back() = value;
+        *nodes_stack_.back() = std::move(value);
+        
         nodes_stack_.pop_back();
     }
     
     return *this;
 }
 
-DictItemContext Builder::StartDict() {
+Builder::DictItemContext Builder::StartDict() {
     // Проверка, что стек не пустой и верхний узел не - NULL или массив
     if (nodes_stack_.empty() || (!nodes_stack_.back()->IsNull() && !nodes_stack_.back()->IsArray())) {
         throw std::logic_error("StartDict error");
@@ -50,7 +51,7 @@ DictItemContext Builder::StartDict() {
     return *this;
 }
 
-ArrayItemContext Builder::StartArray() {
+Builder::ArrayItemContext Builder::StartArray() {
     // Проверка, что стек не пустой и верхний узел не - NULL или массив
     if (nodes_stack_.empty() || (!nodes_stack_.back()->IsNull() && !nodes_stack_.back()->IsArray())) {
         throw std::logic_error("StartArray error");
@@ -97,7 +98,7 @@ Node Builder::Build() {
 }
 
 // Добавление ключа
-KeyItemContext ItemContext::Key(std::string key) {
+Builder::KeyItemContext ItemContext::Key(std::string key) {
     return builder_.Key(std::move(key));
 }
 
@@ -107,12 +108,12 @@ Builder& ItemContext::Value(Node value) {
 }
 
 // СОздание нового словаря
-DictItemContext ItemContext::StartDict() {
+Builder::DictItemContext ItemContext::StartDict() {
     return builder_.StartDict();
 }
 
 // Создание нового массива
-ArrayItemContext ItemContext::StartArray() {
+Builder::ArrayItemContext ItemContext::StartArray() {
     return builder_.StartArray();
 }
 
@@ -127,6 +128,6 @@ Builder& ItemContext::EndArray() {
 }
 
 // Добавление значения в словарь
-ValueContext KeyItemContext::Value(Node value) {
+Builder::ValueContext Builder::KeyItemContext::Value(Node value) {
     return ItemContext::Value(std::move(value));
 }
