@@ -1,14 +1,23 @@
 #include "domain.h"
 
-/*
- * В этом файле вы можете разместить классы/структуры, которые являются частью предметной области
- * (domain) вашего приложения и не зависят от транспортного справочника. Например Автобусные
- * маршруты и Остановки.
- *
- * Их можно было бы разместить и в transport_catalogue.h, однако вынесение их в отдельный
- * заголовочный файл может оказаться полезным, когда дело дойдёт до визуализации карты маршрутов:
- * визуализатор карты (map_renderer) можно будет сделать независящим от транспортного справочника.
- *
- * Если структура вашего приложения не позволяет так сделать, просто оставьте этот файл пустым.
- *
- */
+namespace transport {
+
+Stop::Stop(const std::string& title, const geo::Coordinates& coordinates)
+    : stop_title(title), coords(coordinates) {}
+
+int Stop::GetStopsDistance(Stop* next) {
+    if (stops_distances.count(next->stop_title)) {
+        return stops_distances.at(next->stop_title);
+    }
+    else if (next->stops_distances.count(this->stop_title)) {
+        return next->stops_distances.at(this->stop_title);
+    }
+    else {
+        return 0;
+    }
+}
+
+Bus::Bus(const std::string& number, std::vector<Stop*> stops, bool circle)
+    : bus_number(number), stops(stops), is_circular(circle) {}
+
+} // end of namespace transport

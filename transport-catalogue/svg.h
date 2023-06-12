@@ -12,16 +12,16 @@ namespace svg {
 
 struct Point {
     Point() = default;
-    Point(double x, double y)
-            : x(x)
-            , y(y) {
-    }
+    
+    Point(double x, double y) : x(x), y(y) {}
+    
     double x = 0.0;
     double y = 0.0;
     
     bool operator!=(Point other) {
         return this->x != other.x || this->y != other.y;
     }
+    
     bool operator==(Point other) {
         return !(*this != other);
     }
@@ -32,15 +32,10 @@ struct Point {
  * Хранит ссылку на поток вывода, текущее значение и шаг отступа при выводе элемента
  */
 struct RenderContext {
-    RenderContext(std::ostream& out)
-            : out(out) {
-    }
+    RenderContext(std::ostream& out) : out(out) {}
 
     RenderContext(std::ostream& out, int indent_step, int indent = 0)
-            : out(out)
-            , indent_step(indent_step)
-            , indent(indent) {
-    }
+        : out(out), indent_step(indent_step), indent(indent) {}
 
     RenderContext Indented() const {
         return {out, indent_step, indent + indent_step};
@@ -90,11 +85,9 @@ public:
 
 struct Rgb{
     Rgb() = default;
-    Rgb(uint8_t r, uint8_t g, uint8_t b)
-            : red(r)
-            , green(g)
-            , blue(b){
-    }
+    
+    Rgb(uint8_t r, uint8_t g, uint8_t b) : red(r), green(g), blue(b) {}
+    
     uint8_t red = 0;
     uint8_t green = 0;
     uint8_t blue = 0;
@@ -102,12 +95,9 @@ struct Rgb{
 
 struct Rgba{
     Rgba() = default;
-    Rgba(uint8_t r, uint8_t g, uint8_t b, double op)
-            : red(r)
-            , green(g)
-            , blue(b)
-            , opacity(op){
-    }
+    
+    Rgba(uint8_t r, uint8_t g, uint8_t b, double op) : red(r), green(g), blue(b), opacity(op) {}
+    
     uint8_t red = 0;
     uint8_t green = 0;
     uint8_t blue = 0;
@@ -119,37 +109,36 @@ inline const std::string NoneColor{"none"};
 
 struct ColorPrinter{
     std::ostream& out;
+    
     void operator()(std::monostate) const{
         out << NoneColor;
     }
+    
     void operator()(const std::string& color) const{
         out << color;
     }
+    
     void operator()(svg::Rgb color) const{
         using namespace std::literals;
-        out << "rgb("s << static_cast<int>(color.red) << ',' << static_cast<int>(color.green) << ','
+        
+        out << "rgb("s << static_cast<int>(color.red) << ','
+            << static_cast<int>(color.green) << ','
             << static_cast<int>(color.blue) << ')';
     }
+    
     void operator()(svg::Rgba color) const{
         using namespace std::literals;
-        out << "rgba("s << static_cast<int>(color.red) << ',' << static_cast<int>(color.green) << ','
-            << static_cast<int>(color.blue) << ',' << color.opacity << ')';
+        
+        out << "rgba("s << static_cast<int>(color.red) << ','
+            << static_cast<int>(color.green) << ','
+            << static_cast<int>(color.blue) << ','
+            << color.opacity << ')';
     }
 };
 
-enum class StrokeLineCap {
-    BUTT,
-    ROUND,
-    SQUARE,
-};
+enum class StrokeLineCap { BUTT, ROUND, SQUARE };
 
-enum class StrokeLineJoin {
-    ARCS,
-    BEVEL,
-    MITER,
-    MITER_CLIP,
-    ROUND,
-};
+enum class StrokeLineJoin { ARCS, BEVEL, MITER, MITER_CLIP, ROUND };
 
 std::ostream& operator<<(std::ostream& out, const StrokeLineCap& line_cap);
 std::ostream& operator<<(std::ostream& out, const StrokeLineJoin& line_join);
@@ -160,24 +149,34 @@ class PathProps{
 public:
     Owner& SetFillColor(Color color) {
         fill_color_ = std::move(color);
+        
         return AsOwner();
     }
+    
     Owner& SetStrokeColor(Color color) {
         stroke_color_ = std::move(color);
+        
         return AsOwner();
     }
+    
     Owner& SetStrokeWidth(double width) {
         stroke_width_ = width;
+        
         return AsOwner();
     }
+    
     Owner& SetStrokeLineCap(StrokeLineCap line_cap) {
         stroke_line_cap_ = line_cap;
+        
         return AsOwner();
     }
+    
     Owner& SetStrokeLineJoin(StrokeLineJoin line_join) {
         stroke_line_join_ = line_join;
+        
         return AsOwner();
     }
+    
 protected:
     ~PathProps() = default;
 
@@ -187,16 +186,20 @@ protected:
         if (fill_color_) {
             out << " fill=\""sv << *fill_color_ << "\""sv;
         }
+        
         if (stroke_color_) {
             out << " stroke=\""sv << *stroke_color_ << "\""sv;
         }
-        if(stroke_width_){
+        
+        if (stroke_width_) {
             out << " stroke-width=\"" << *stroke_width_ << "\""sv;
         }
-        if(stroke_line_cap_){
+        
+        if (stroke_line_cap_) {
             out << " stroke-linecap=\"" << *stroke_line_cap_ << "\""sv;
         }
-        if(stroke_line_join_){
+        
+        if (stroke_line_join_) {
             out << " stroke-linejoin=\"" << *stroke_line_join_ << "\""sv;
         }
     }
@@ -273,12 +276,13 @@ public:
 
     // Прочие данные и методы, необходимые для реализации элемента <text>
 private:
-    Point pos_ = {0.0, 0.0};
-    Point offset_ = {0.0, 0.0};
+    Point pos_ = { 0.0, 0.0 };
+    Point offset_ = { 0.0, 0.0 };
     uint32_t size_ = 1;
     std::string font_family_;
     std::string font_weight_;
     std::string data_;
+    
     void RenderObject(const RenderContext& context) const override;
 };
 
@@ -295,4 +299,4 @@ private:
     std::vector<std::unique_ptr<Object>> objects_;
 };
 
-}  // end of namespace svg
+} // end of namespace svg

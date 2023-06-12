@@ -3,7 +3,9 @@
 #include "geo.h"
 
 #include <string>
+#include <unordered_map>
 #include <vector>
+#include <string_view>
 
 namespace transport {
 
@@ -13,29 +15,30 @@ struct Stop {
     // Координаты остановки
     geo::Coordinates coords;
     // Информация об остановках и расстояний между ними
-    std::vector<std::pair<std::string, int>> stops_distances;
+    std::unordered_map<std::string_view, int> stops_distances;
+    
+    Stop(const std::string& title, const geo::Coordinates& coordinates);
+    // Получение информации о расстоянии между остановками
+    int GetStopsDistance(Stop* next);
 };
 
 struct Bus {
     // Номер автобуса/маршрута
     std::string bus_number;
     // Список остановок на маршруте
-    std::vector<const Stop*> stops;
+    std::vector<Stop*> stops;
     // Признак кругового маршрута
     bool is_circular;
+    // Конечная остановка маршрута
+    Stop* final_stop = nullptr;
+    
+    Bus(const std::string& number, std::vector<Stop*> stops, bool circle);
 };
 
 struct BusRoute {
-    // Название маршурта
-    std::string_view name;
-    // Количество остановок маршрута
-    int stops;
-    // Количество уникальных остановок
-    int unique_stops;
-    // Длина маршрута
-    int route_length;
-    // Извилистость маршрута
-    double curvature;
+    std::vector<std::string_view> stops;
+    std::string_view final_stop;
+    bool is_roundtrip;
 };
 
 } // end of namespace transport

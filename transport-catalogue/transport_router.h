@@ -1,90 +1,74 @@
 #pragma once
 
+#include "json_builder.h"
+#include "transport_catalogue.h"
 #include "graph.h"
 #include "router.h"
-#include "transport_catalogue.h"
 
-#include <unordered_map>
-#include <vector>
-#include <memory>
+#include <optional>
 
 namespace transport {
 
-// Структура, описывающая настройки маршрута
-struct RouteSettings {
-    // Время ожидания автобуса на остановке
-    int bus_wait_time;
-    // Скорость движения автобуса
-    double bus_velocity;
-};
-
-// Структура, хранящая время пути между двумя остановками
-struct RouteTime {
-    RouteTime() = default;
-    
-    RouteTime(int stops_number, double waiting_time, double travel_time) 
-        : stops_number(stops_number), waiting_time(waiting_time), travel_time(travel_time) {}
-    
-    // Количество промежуточных остановок
-    int stops_number;
-    // Время ожидания
-    double waiting_time;
-    // Время пути
-    double travel_time;
-};
-
-// Перегрузка операторов
-RouteTime operator+(const RouteTime& lhs, const RouteTime& rhs);
-
-bool operator<(const RouteTime& lhs, const RouteTime& rhs);
-bool operator>(const RouteTime& lhs, const RouteTime& rhs);
-
-// Структура, описывающая цепочку маршрута от одной остановки до другой
-struct RouteChain {
-    const Stop* from;
-    const Stop* to;
-    const Bus* route;
-    RouteTime route_time;
-};
-
-// Класс для нахождения кратчайшего пути между остановками
-class RouteShortest {
+class Router {
 public:
-    RouteShortest(const Catalogue* catalogue, const Bus* route);
-    
-    // Расстояние между двумя вершинами графа/остановками
-    size_t DistanceBetween(size_t index_from, size_t index_to);
-    
-private:
-    // Расстояние до каждой остановки в прямом направлении
-    std::vector<size_t> forward_distance_;
-    // Расстояние до каждой остановки в обратном направлении
-    std::vector<size_t> backward_distance_;
-};
+    Router() = default;
 
-class TransportRouter {
-public:
-    TransportRouter() = default;
+    // Конструктор, принимающий узел с настройками
+    Router(const json::Node& settings);
+    // Конструктор, принимающий узел с настройками и каталог
+    Router(const json::Node& settings, const Catalogue& db);
+    // Конструктор, принимающий узел с настройками, граф и идентификаторы остановок
+    Router(const json::Node& settings, graph::DirectedWeightedGraph<double> graph, std::map<std::string, graph::VertexId> vertex); 
+
+    // Установка графа и вершин остановок
+    void SetGraph(graph::DirectedWeightedGraph<double>&& graph, std::map<std::string, graph::VertexId>&& vertex);
+
+    // Построение графа на основе каталога
+    const graph::DirectedWeightedGraph<double>& BuildGraph(const Catalogue& db);
+
+    // Получение массива элементов ребер графа
+    json::Node GetEdgesItems(const std::vector<graph::EdgeId>& edges) const;
+
+    // Получение информации о маршруте от текущей остановки до следующей
+    std::optional<graph::Router<double>::RouteInfo> GetRouteInfo(const Stop* current, const Stop* next) const;
+
+    // Получение количества вершин в графе
+    size_t GetGraphVertexCount();
+
+    // Получение идентификаторов остановок
+    const std::map<std::string, graph::VertexId>& GetStopsVertex() const;
+
+    // Получение графа
+    const graph::DirectedWeightedGraph<double>& GetGraph() const;
+
+    // Получение настроек
+    json::Node GetSettings() const;
+
+    // Методы для сериализации данных
+    serialize::RouterSettings RouterSettingSerialize(const json::Node& router_settings) const;
     
-    void RouterBuilder(RouteSettings settings, const Catalogue* db);
+    serialize::Router RouterSerialize(const transport::Router& router) const;
     
-    // Поиск оптимального маршрута
-    std::optional<std::vector<const RouteChain*>> FindOptimalRoute(std::string_view current, std::string_view next) const;
-    
+    // Деструктор
+    ~Router() {
+        delete router_;
+    }
+
 private:
-    // Настройки маршрута
-    RouteSettings settings_;
+    // Установка настроек
+    void SetSettings(const json::Node& settings_node);
     
-    const Catalogue* db_;
+    // Время ожидания автобуса
+    int bus_wait_time_ = 0;
+    // Скорость автобуса
+    double bus_velocity_ = 0;
     
-    // Граф маршрутов
-    std::unique_ptr<graph::DirectedWeightedGraph<RouteTime>> graph_;
-    // Соответствие остановок и вершин графа
-    std::unordered_map<const Stop*, graph::VertexId> graph_vertexes_;
-    // Ребра графа/цепочки маршрутов
-    std::vector<RouteChain> graph_edges_;
-    
-    std::unique_ptr<graph::Router<RouteTime>> router_;
+    // Граф
+    graph::DirectedWeightedGraph<double> graph_; 
+    // Идентификаторы остановок и их вершины
+    std::map<std::string, graph::VertexId> stops_vertex_; 
+    // Указатель на объект класса Router
+    graph::Router<double>* router_ = nullptr; 
 };
 
 } // end of namespace transport

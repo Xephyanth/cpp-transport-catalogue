@@ -1,32 +1,38 @@
 #pragma once
 
 #include "map_renderer.h"
+#include "transport_catalogue.h"
 #include "transport_router.h"
+
+#include <utility>
 
 namespace transport {
 
 class RequestHandler {
 public:
     // Конструктор класса
-    RequestHandler(const Catalogue& db, const MapRenderer& renderer, const TransportRouter& router);
-
-    // Метод для получения статистики по автобусному маршруту
-    std::optional<BusRoute> GetBusStat(const std::string_view& bus_name) const;
+    RequestHandler(const Catalogue& db, const MapRenderer& renderer, const Router& router);
     
-    // Метод для получения множества указателей на объекты Bus, которые останавливаются на остановке
-    const std::unordered_set<const Bus*>* GetBusesByStop(const std::string_view& stop_name) const;
+    // Формирование ответа от базы данных транспортного каталога
+    void DatabaseRespond(const json::Node& doc, std::ostream& output);
     
     // Метод для создания SVG-документа с картой маршрутов автобусов
     svg::Document RenderMap() const;
-    
-    // Метод для получения оптимального маршрута между двумя остановками
-    std::optional<std::vector<const RouteChain*>> GetOptimalRoute(std::string_view current, std::string_view next) const;
 
 private:
+    // Формирование информации о маршруте
+    json::Node BusRespond(const json::Dict& request);
+    // Формирование информации об остановке
+    json::Node StopRespond(const json::Dict& request);
+    // Формирование информации о визуализации
+    json::Node MapImageRespond(const json::Dict& request);
+    // Формирование информации о быстром/оптимальном пути
+    json::Node RouteRespond(const json::Dict& request);
+    
     // Ссылки на объекты
     const Catalogue& db_;
     const MapRenderer& renderer_;
-    const TransportRouter& router_;
+    const Router& router_;
 };
 
 } // end of namespace transport

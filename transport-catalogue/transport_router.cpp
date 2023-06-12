@@ -1,136 +1,236 @@
 #include "transport_router.h"
 
+#include <string>
+#include <string_view>
+#include <map>
+#include <utility>
+#include <vector>
+#include <algorithm>
+
 namespace transport {
 
-// Конструктор класса
-RouteShortest::RouteShortest(const Catalogue* db, const Bus* route)
-    : forward_distance_(route->stops.size()), backward_distance_(route->stops.size()) 
+using namespace std::literals;
+
+Router::Router(const json::Node& settings) {
+    if (settings.IsNull()) {
+        return;
+    }
+    // Устанавление настроек маршрутизатора
+    SetSettings(settings);
+}
+
+// Перегруженный конструктор для построения графов на основе каталога 
+Router::Router(const json::Node& settings, const Catalogue& db) {
+    if (settings.IsNull()) {
+        return;
+    }
+
+    SetSettings(settings);
+    BuildGraph(db);
+}
+
+// Перегруженный конструктор для построения графов и создания нового объекта
+Router::Router(const json::Node& settings, graph::DirectedWeightedGraph<double> graph,
+    std::map<std::string, graph::VertexId> vertex) : graph_(graph), stops_vertex_(vertex)
 {
-    size_t forward_accum = 0;
-    size_t backward_accum = 0;
+    if (settings.IsNull()) {
+        return;
+    }
     
-    // Вычисление расстояния прямого и обратного пути между остановками
-    forward_distance_[0] = 0;
-    backward_distance_[0] = 0;
+    SetSettings(settings);
+    router_ = new graph::Router<double>(graph_);
+}
+
+// Метод устанавливает новый граф и карту остановок
+void Router::SetGraph(graph::DirectedWeightedGraph<double>&& graph, std::map<std::string, graph::VertexId>&& vertex) {
+    graph_ = std::move(graph);
+    stops_vertex_ = std::move(vertex);
+    router_ = new graph::Router<double>(graph_);
+}
+
+// Метод строит граф маршрутов на основе транспортного каталога
+const graph::DirectedWeightedGraph<double>& Router::BuildGraph(const Catalogue& db) {
+    const std::map<std::string_view, Stop*>& all_stops = db.GetSortedAllStops();
+    const std::map<std::string_view, Bus*>& all_buses = db.GetSortedAllBuses();
     
-    for (size_t i = 0; i < route->stops.size() - 1; ++i) {
-        forward_accum += db->GetStopsDistance(route->stops[i], route->stops[i + 1]);
+    // Создание графа с удвоенным количеством вершин
+    graph::DirectedWeightedGraph<double> stops_graph(all_stops.size() * 2);
+    std::map<std::string, graph::VertexId> stop_vertex;
+    graph::VertexId vertex_id = 0;
+    
+    // Добавление вершин и ребра, связанных с остановками
+    for (const auto& [_, stop] : all_stops) {
+        stop_vertex[stop->stop_title] = vertex_id;
+        stops_graph.AddEdge({ stop->stop_title, 0,
+                              vertex_id, ++vertex_id,
+                              static_cast<double>(bus_wait_time_) }
+                           );
+        ++vertex_id;
+    }
+    stops_vertex_ = std::move(stop_vertex);
+
+    // Добавление вершин и ребра, связанных с автобусами
+    std::for_each(all_buses.begin(), all_buses.end(),
+             [&stops_graph, this](const auto& item) {
+                 const auto& bus = item.second;
+                 const std::vector<Stop*>& stops = bus->stops;
+                 size_t stops_count = stops.size();
+                 
+                 for (size_t i = 0; i < stops_count; ++i) {
+                     for (size_t j = i + 1; j < stops_count; ++j) {
+                         const Stop* stop_from = stops[i];
+                         const Stop* stop_to = stops[j];
+                         int dist_sum = 0;
+                         
+                         // Вычисление суммарного расстояния между остановками
+                         for (size_t k = i + 1; k <= j; ++k) {
+                             dist_sum += stops[k - 1]->GetStopsDistance(stops[k]);
+                         }
+                         
+                         // Добавление ребра графа для автобуса
+                         stops_graph.AddEdge({ bus->bus_number, j - i, stops_vertex_.at(stop_from->stop_title) + 1,
+                                               stops_vertex_.at(stop_to->stop_title),
+                                               static_cast<double>(dist_sum) / (bus_velocity_ * (100.0 / 6.0)) }
+                                            );
+                         
+                         // Если автобус не является кольцевым и достигнута конечная остановка,
+                         // прерываем добавление ребер
+                         if (!bus->is_circular && stop_to == bus->final_stop && j == stops_count / 2) {
+                             break;
+                         }
+                     }
+                 }
+             });
+
+    graph_ = std::move(stops_graph);
+    router_ = new graph::Router<double>(graph_);
+    
+    return graph_;
+}
+
+// Метод преобразует ребра графа в элементы массива для JSON
+json::Node Router::GetEdgesItems(const std::vector<graph::EdgeId>& edges) const {
+    json::Builder builder;
+    auto arrayContext = builder.StartArray();
+    
+    // Создание массива элементов ребер графа для передачи в формат JSON
+    for (auto& edge_id : edges) {
+        const graph::Edge<double>& edge = graph_.GetEdge(edge_id);
         
-        forward_distance_[i + 1] = forward_accum;
-        
-        if (!route->is_circular) {
-            backward_accum += db->GetStopsDistance(route->stops[i + 1], route->stops[i]);
-            
-            backward_distance_[i + 1] = backward_accum;
+        if (edge.quality == 0) {
+            auto dictContext = arrayContext.StartDict();
+            dictContext.Key("stop_name"s).Value(static_cast<std::string>(edge.name));
+            dictContext.Key("time"s).Value(edge.weight);
+            dictContext.Key("type"s).Value("Wait"s);
+            dictContext.EndDict();
+        }
+        else {
+            auto dictContext = arrayContext.StartDict();
+            dictContext.Key("bus"s).Value(static_cast<std::string>(edge.name));
+            dictContext.Key("span_count"s).Value(static_cast<int>(edge.quality));
+            dictContext.Key("time"s).Value(edge.weight);
+            dictContext.Key("type"s).Value("Bus"s);
+            dictContext.EndDict();
         }
     }
-}
-
-// Вычисление расстояния между двумя остановками на маршруте
-size_t RouteShortest::DistanceBetween(size_t index_from, size_t index_to) {
-    if (index_from < index_to) {
-        return forward_distance_[index_to] - forward_distance_[index_from];
-    }
-    else {
-        return backward_distance_[index_from] - backward_distance_[index_to];
-    }
-}
-
-// Перегрузка операторов 
-RouteTime operator+(const RouteTime& lhs, const RouteTime& rhs) {
-    return { lhs.stops_number + rhs.stops_number, lhs.waiting_time + rhs.waiting_time, lhs.travel_time + rhs.travel_time };
-}
-
-bool operator<(const RouteTime& lhs, const RouteTime& rhs) {
-    return (lhs.waiting_time + lhs.travel_time < rhs.waiting_time + rhs.travel_time);
-}
-
-bool operator>(const RouteTime& lhs, const RouteTime& rhs) {
-    return (lhs.waiting_time + lhs.travel_time > rhs.waiting_time + rhs.travel_time);
-}
-
-// Транспортный маршрутизатор
-void TransportRouter::RouterBuilder(RouteSettings settings, const Catalogue* db) {
-    // Преобразование км/ч в м/с
-    settings_.bus_velocity = settings.bus_velocity / 3.6;
-    // Преобразование минут в секунды
-    settings_.bus_wait_time = settings.bus_wait_time * 60;
     
-    db_ = db;
+    return arrayContext.EndArray().Build();
+}
+
+// Метод возвращает информацию о маршруте между остановками
+std::optional<graph::Router<double>::RouteInfo> Router::GetRouteInfo(const Stop* current, const Stop* next) const {
+    return router_->BuildRoute(stops_vertex_.at(current->stop_title), stops_vertex_.at(next->stop_title));
+}
+
+// Метод возвращает количество вершин в графе
+size_t Router::GetGraphVertexCount() {
+    return graph_.GetVertexCount();
+}
+
+// Метод возвращает соответствия идентификаторов остановок и их названий
+const std::map<std::string, graph::VertexId>& Router::GetStopsVertex() const {
+    return stops_vertex_;
+}
+
+// Метод возвращает константную ссылку на объект и позволяет получить доступ к построенному графу
+const graph::DirectedWeightedGraph<double>& Router::GetGraph() const {
+    return graph_;
+}
+
+// Метод возвращает объект, содержащий настройки маршрутизатора
+json::Node Router::GetSettings() const {
+    return json::Builder{}.StartDict()
+        .Key("bus_wait_time"s).Value(bus_wait_time_)
+        .Key("bus_velocity"s).Value(bus_velocity_)
+        .EndDict().Build();
+}
+
+// Метод устанавливает настройки маршрутизатора
+void Router::SetSettings(const json::Node& settings) {
+    bus_wait_time_ = settings.AsDict().at("bus_wait_time"s).AsInt();
+    bus_velocity_ = settings.AsDict().at("bus_velocity"s).AsDouble();
+}
+
+/*
+*   Сериализация
+*/
+
+serialize::RouterSettings Router::RouterSettingSerialize(const json::Node& router_settings) const {
+    const json::Dict& rs_map = router_settings.AsDict();
     
-    auto* all_stops = db_->GetAllStops();
-    graph_ = std::make_unique<graph::DirectedWeightedGraph<RouteTime>>(all_stops->size());
-    graph::VertexId vertex_counter = 0;
+    serialize::RouterSettings result;
+    
+    result.set_bus_wait_time(rs_map.at("bus_wait_time"s).AsInt());
+    result.set_bus_velocity(rs_map.at("bus_velocity"s).AsDouble());
+    
+    return result;
+}
 
-    // Создание вершин графа для всех остановок
-    for (auto [_, stop_ptr] : *all_stops) {
-        graph_vertexes_.insert({ stop_ptr, vertex_counter++ });
-    }
-
-    // Построение ребра графа для всех маршрутов
-    for (const auto& [_, route_ptr] : db->GetAllRoutes()) {
-        const auto& stops = route_ptr->stops;
-        RouteShortest distance_proc(db, route_ptr);
+serialize::Graph GraphSerialize(const graph::DirectedWeightedGraph<double>& g) {
+    serialize::Graph result;
+    
+    size_t vertex_count = g.GetVertexCount();
+    size_t edge_count = g.GetEdgeCount();
+    
+    for (size_t i = 0; i < edge_count; ++i) {
+        serialize::Edge s_edge;
         
-        for (int i = 0; i < stops.size() - 1; ++i) {
-            for (int j = i + 1; j < stops.size(); ++j) {
-                // Вычисление времени поездки между остановками
-                RouteTime travel_dur(j - i, settings_.bus_wait_time,
-                                          distance_proc.DistanceBetween(i, j) / settings_.bus_velocity
-                );
-                
-                // Создание цепочки маршрутов
-                RouteChain travel_unit{ stops[i], stops[j], route_ptr, travel_dur };
-                
-                // Добавление ребра в граф в прямом направлении
-                graph_->AddEdge(graph::Edge<RouteTime>{graph_vertexes_[travel_unit.from], graph_vertexes_[travel_unit.to], travel_dur});
-                graph_edges_.push_back(std::move(travel_unit));
-                
-                if (!route_ptr->is_circular) {
-                    // Вычисление времени поездки в обратном направлении
-                    RouteTime travel_dur(j - i, settings_.bus_wait_time,
-                                              distance_proc.DistanceBetween(j, i) / settings_.bus_velocity
-                    );
-                    
-                    // Создание цепочки маршруто в обратном направлении
-                    RouteChain travel_unit{ stops[i], stops[j], route_ptr, travel_dur };
-                    
-                    // Добавление ребра в граф в обратном направлении
-                    graph_->AddEdge(graph::Edge<RouteTime>{graph_vertexes_[travel_unit.to], graph_vertexes_[travel_unit.from], travel_dur});
-                    graph_edges_.push_back(std::move(travel_unit));
-                }
-            }
+        const graph::Edge<double>& edge = g.GetEdge(i);
+        
+        s_edge.set_name(edge.name);
+        s_edge.set_quality(edge.quality);
+        s_edge.set_from(edge.from);
+        s_edge.set_to(edge.to);
+        s_edge.set_weight(edge.weight);
+        
+        *result.add_edge() = s_edge;
+    }
+    for (size_t i = 0; i < vertex_count; ++i) {
+        serialize::Vertex vertex;
+        
+        for (const auto& edge_id : g.GetIncidentEdges(i)) {
+            vertex.add_edge_id(edge_id);
         }
+        
+        *result.add_vertex() = vertex;
     }
     
-    router_ = std::make_unique<graph::Router<RouteTime>>(*graph_);
+    return result;
 }
 
-// Поиск оптимального маршрута между двумя остановками
-std::optional<std::vector<const RouteChain*>> TransportRouter::FindOptimalRoute(std::string_view from, std::string_view to) const {
-    const Stop* stop_from = db_->FindStop(from);
-    const Stop* stop_to = db_->FindStop(to);
+serialize::Router Router::RouterSerialize(const Router& router) const {
+    serialize::Router result;
     
-    if (stop_from == nullptr || stop_to == nullptr) {
-        return std::nullopt;
-    }
+    *result.mutable_router_settings() = RouterSettingSerialize(router.GetSettings());
+    *result.mutable_graph() = GraphSerialize(router.GetGraph());
     
-    std::vector<const RouteChain*> result;
-    if (stop_from == stop_to) {
-        return result;
-    }
-    
-    graph::VertexId vertex_from = graph_vertexes_.at(stop_from);
-    graph::VertexId vertex_to = graph_vertexes_.at(stop_to);
-    
-    // Создание оптимального маршрутва с помощью поиска кратчайшего пути
-    auto route = router_->BuildRoute(vertex_from, vertex_to);
-    if (!route.has_value()) {
-        return std::nullopt;
-    }
-    
-    for (const auto& edge : route.value().edges) {
-        result.push_back(&graph_edges_.at(edge));
+    for (const auto& [name, id] : router.GetStopsVertex()) {
+        serialize::StopId si;
+        
+        si.set_name(name);
+        si.set_id(id);
+        
+        *result.add_stop_id() = si;
     }
     
     return result;

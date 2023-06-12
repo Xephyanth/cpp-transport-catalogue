@@ -1,312 +1,147 @@
 #include "json_reader.h"
-#include "json_builder.h"
-
-#include <vector>
-#include <string>
-#include <sstream>
-
-using namespace std::literals;
 
 namespace transport {
 
-JsonReader::JsonReader(std::istream& input, Catalogue* db, MapRenderer* renderer, TransportRouter* router)
-    : input_(json::Load(input)), db_(db), renderer_(renderer), router_(router)
-{
-    std::vector<std::string> stop_titles;
-    
-    /*
-    *   Обработка и сохранение всех транспортных остановок
-    */
-    for (const auto& base_requests : input_.GetRoot().AsDict().at("base_requests"s).AsArray()) {
-        if (base_requests.AsDict().at("type"s) == "Stop"s) {
-            // Получение информации
-            auto data = base_requests.AsDict();
-            
-            auto title = data.at("name"s).AsString();
-            auto geo_lat = data.at("latitude"s).AsDouble();
-            auto geo_lng = data.at("longitude"s).AsDouble();
-            auto distance = data.at("road_distances"s).AsDict();
-            
-            stop_titles.push_back(title);
-            
-            // Формирование вектора пар, которая содержит название остановки и расстояние до неё
-            std::vector<std::pair<std::string, int>> route_stops;
-            for (const auto& [stop_name, distance] : distance) {
-                route_stops.push_back(std::make_pair(stop_name, distance.AsInt()));
-            }
-            
-            // Добавление остановки в каталог
-            db_->AddStop(title, { geo_lat, geo_lng }, route_stops);
-        }
-    }
+using namespace std::literals;
 
-    // Обработка и добавление расстояний между остановками
-    for (auto stop : stop_titles) {
-        auto* current = db_->FindStop(stop);
-        
-        for (auto& [next, distance] : current->stops_distances) {
-            db_->SetStopsDistance(current, db_->FindStop(next), distance);
-        }
-    }
-    
-    /*
-    *   Добавление автобусных маршрутов
-    */
-    for (const auto& base_requests : input_.GetRoot().AsDict().at("base_requests"s).AsArray()) {
-        if (base_requests.AsDict().at("type"s) == "Bus"s) {
-            // Получение информации
-            auto data = base_requests.AsDict();
-            
-            const auto& name = data.at("name"s).AsString();
-            
-            // Остановки маршрута
-            std::vector<std::string_view> stops;
-            for (const auto& stop : data.at("stops"s).AsArray()) {
-                stops.push_back(stop.AsString());
-            }
-            
-            // Добавление маршрута в каталог
-            db_->AddRoute(name, stops, data.at("is_roundtrip"s).AsBool());
-        }
-    }
-    
-    /*
-    *   
-    */
-    json::Dict config = input_.GetRoot().AsDict().at("routing_settings"s).AsDict();
-    // 
-    router_->RouterBuilder({ config.at("bus_wait_time"s).AsInt(), config.at("bus_velocity"s).AsDouble() }, db_);
+const json::Node& JsonReader::GetBaseRequest() const {
+    return data_.GetRoot().AsDict().at("base_requests"s);
 }
 
-void JsonReader::DatabaseRespond(std::ostream& output) {
-    RequestHandler handler(*db_, *renderer_, *router_);
-    json::Array respond;
+const json::Node& JsonReader::GetStatRequest() const {
+    return data_.GetRoot().AsDict().at("stat_requests"s);
+}
+
+const json::Node& JsonReader::GetRenderSettings() const {
+    return data_.GetRoot().AsDict().at("render_settings"s);
+}
+
+const json::Node& JsonReader::GetRoutingSettings() const {
+    return data_.GetRoot().AsDict().at("routing_settings"s);
+}
+
+const json::Node& JsonReader::GetSerializationSettings() const {
+    return data_.GetRoot().AsDict().at("serialization_settings"s);
+}
+
+void JsonReader::ImportData(Catalogue& db) const {
+    StopsDist stops_distance; // Расстояния между остановками
+    BusesInfo buses;          // Информация о маршрутах
     
-    // Цикл по массиву запросов внутри поля stat_requests корневого узла
-    for (const json::Node& request : input_.GetRoot().AsDict().at("stat_requests"s).AsArray()) {
-        std::string type = request.AsDict().at("type"s).AsString();
+    const json::Array& arr = GetBaseRequest().AsArray();
+    for (const auto& request_node : arr) {
+        const json::Dict& request = request_node.AsDict();
+        // Извлечение типа запроса
+        const std::string& type = request.at("type"s).AsString();
         
-        // Вызов функции вывода информации об объекте
-        // Если тип запроса - Маршрут
-        if (type == "Bus"s) {
-            respond.push_back(std::move(BusRespond(handler, request)));
-        }
-        
-        // Если тип запроса - Остановка
+        // Обработка запроса типа Остановка
         if (type == "Stop"s) {
-            respond.push_back(std::move(StopRespond(handler, request)));
+            ParseStop(db, request, stops_distance);
         }
-        
-        // Если тип запроса - Визуализация
-        if (type == "Map"s) {
-            respond.push_back(std::move(MapImageRespond(handler, request)));
-        }
-        
-        // Если тип запроса - Маршрут между двумя остановками
-        if (type == "Route"s) {
-            respond.push_back(std::move(RouteRespond(handler, request)));
+        // Обработка запроса типа Маршрут
+        if (type == "Bus"s) {
+            ParseBus(request, buses);
         }
     }
     
-    const auto result = json::Document(std::move(respond));
     
-    // Вывод полученного результата
-    json::Print(result, output);
+    SetStopsDistances(db, stops_distance); // Установка расстояния между остановками
+    BusesAdd(db, buses);                   // Добавление маршрутов
+    SetFinalStop(db, buses);               // Установка конечных остановок
 }
 
-// Возвращает ответ на запрос с информацией автобусного маршрута
-json::Dict JsonReader::BusRespond(RequestHandler& handler, const json::Node& request) {
-    // Получение информации об автобусе
-    auto bus_info = handler.GetBusStat(request.AsDict().at("name"s).AsString());
-    // Получение идентификатора запроса
-    int request_id = request.AsDict().at("id"s).AsInt();
+void JsonReader::ParseStop(Catalogue& db, const json::Dict& request, StopsDist& stops_distance) const {
+    // Извлечение названия остановки и координат
+    const auto& stop_name = request.at("name"s).AsString();
+    geo::Coordinates coords = { request.at("latitude"s).AsDouble(), request.at("longitude"s).AsDouble() };
     
-    // Если информация о автобусе найдена
-    if (bus_info.has_value()) {
-        // Добавление к ответу информации
-        return json::Builder{}.StartDict()
-            .Key("request_id"s).Value(request_id)
-            .Key("curvature"s).Value(bus_info.value().curvature)
-            .Key("route_length"s).Value(bus_info.value().route_length)
-            .Key("stop_count"s).Value(bus_info.value().stops)
-            .Key("unique_stop_count"s).Value(bus_info.value().unique_stops)
-            .EndDict().Build().AsDict();
-    }
-    else { // Если информация о автобусе не найдена
-        return json::Builder{}.StartDict()
-            .Key("request_id"s).Value(request_id)
-            .Key("error_message"s).Value("not found"s)
-            .EndDict().Build().AsDict();
+    // Добавление остановки в БД
+    db.AddStop(stop_name, coords);
+    
+    // Извлечение информации о расстояниях
+    const json::Dict& near_stops = request.at("road_distances"s).AsDict();
+    for (const auto& [next_stop, dist] : near_stops) {
+        // Добавление расстояний до указанных ближайших остановки
+        stops_distance[stop_name][next_stop] = dist.AsInt();
     }
 }
 
-// Возвращает ответ на запрос с информацией транспортной остановки
-json::Dict JsonReader::StopRespond(RequestHandler& handler, const json::Node& request) {
-    // Получаем информацию о маршрутах, проходящих через остановку
-    auto stop_info = handler.GetBusesByStop(request.AsDict().at("name"s).AsString());
-    // Получение идентификатора запроса
-    int request_id = request.AsDict().at("id"s).AsInt();
-
-    // Если информация о маршрутах была найдена
-    if (stop_info) {
-        // Множество для хранения номеров маршрутов
-        std::set<std::string> buses;
-        // Добавление номеров маршрутов
-        for (auto* bus : *stop_info) {
-            buses.insert(bus->bus_number);
+void JsonReader::SetStopsDistances(Catalogue& db, const StopsDist& stops_distance) const {
+    for (const auto& [stop, near_stops] : stops_distance) {
+        for (const auto& [stop_name, dist] : near_stops) {
+            // Сохранение расстояний между остановками в БД
+            db.SetStopsDistance(db.FindStop(stop), db.FindStop(stop_name), dist);
         }
+    }
+}
 
-        // Массив для хранения номеров маршрутов
-        json::Array buses_array;
-        // Заполнение массива номерами маршрутов
-        for (auto& bus : buses) {
-            buses_array.push_back(bus);
+void JsonReader::ParseBus(const json::Dict& request, BusesInfo& buses) const {
+    // Извлечение названия маршрута и его остановок
+    const std::string& bus_name = request.at("name"s).AsString();
+    const json::Array& bus_stops = request.at("stops"s).AsArray();
+    
+    // Получение кол-ва остановок
+    size_t stops_count = bus_stops.size();
+    // Признак кругового маршрута
+    bool is_roundtrip = request.at("is_roundtrip"s).AsBool();
+    buses[bus_name].is_roundtrip = is_roundtrip;
+    
+    // Получение списка остановок маршрута
+    auto& stops = buses[bus_name].stops;
+    if (stops_count > 0) {
+        // В зависимости от типа маршрута резервируется память для списка остановок 
+        stops.reserve(is_roundtrip ? stops_count : stops_count * 2);
+    }
+    
+    // Цикл по всем остановкам
+    for (size_t i = 0; i < bus_stops.size(); ++i) {
+        // Добавление остановки
+        stops.push_back(bus_stops[i].AsString());
+        
+        // Если достигли последней остановки
+        if (i == bus_stops.size() - 1) {
+            // И если маршрут не круговой
+            if (!is_roundtrip) {
+                // Устанавка последней остановки
+                buses[bus_name].final_stop = bus_stops[i].AsString();
+                
+                // Список остановок в обратном порядке для обратного маршрута
+                for (int j = stops.size() - 2; j >= 0; --j) {
+                    stops.push_back(stops[j]);
+                }
+            }
+            else {
+                // Установка последней остановки для кругового маршрута
+                buses[bus_name].final_stop = bus_stops[0].AsString();
+            }
+        }
+    }
+}
+
+void JsonReader::BusesAdd(Catalogue& db, const BusesInfo& buses) const {
+    for (const auto& [name, info] : buses) {
+        std::vector<Stop*> all_stops;
+        const auto& stops = info.stops;
+        all_stops.reserve(stops.size());
+        
+        for (const auto& stop : stops) {
+            all_stops.push_back(db.FindStop(stop));
         }
         
-        return json::Builder{}.StartDict()
-            .Key("request_id"s).Value(request_id)
-            .Key("buses"s).Value(buses_array)
-            .EndDict().Build().AsDict();
-    }
-    else { // Если информация об остановке не найдена
-        return json::Builder{}.StartDict()
-            .Key("request_id"s).Value(request_id)
-            .Key("error_message"s).Value("not found"s)
-            .EndDict().Build().AsDict();
+        // Добавление маршрута в БД
+        db.AddRoute(name, all_stops, info.is_roundtrip);
     }
 }
 
-json::Dict JsonReader::MapImageRespond(RequestHandler& handler, const json::Node& request) {
-    // Обработка настроек визуализации
-    RenderSettings render_settings = RendererDataProcessing(input_.GetRoot().AsDict().at("render_settings"s).AsDict());
-    
-    // Получение идентификатора запроса
-    int request_id = request.AsDict().at("id"s).AsInt();
-    
-    renderer_->SetRenderSettings(render_settings);
-    
-    // Вывод SVG-изображения карты в поток
-    std::stringstream stream;
-    handler.RenderMap().Render(stream);
-    
-    json::Node result = json::Builder{}.StartDict()
-        .Key("request_id"s).Value(request_id)
-        .Key("map"s).Value(stream.str())
-        .EndDict().Build();
-    
-    return result.AsDict();
-}
-
-json::Dict JsonReader::RouteRespond(RequestHandler& handler, const json::Node& request) {
-    // Получение идентификатора запроса
-    int id = request.AsDict().at("id"s).AsInt();
-    // Получение информации о маршруте из запроса
-    auto route_data = handler.GetOptimalRoute(request.AsDict().at("from"s).AsString(), request.AsDict().at("to"s).AsString());
-    
-    // Если сведений о маршруте нет, возвращается информация с ошибокй
-    if (!route_data.has_value()) {
-        return json::Builder{}.StartDict()
-            .Key("request_id"s).Value(id)
-            .Key("error_message"s).Value("not found"s)
-            .EndDict().Build().AsDict();
+void JsonReader::SetFinalStop(Catalogue& db, const BusesInfo& buses) const {
+    // Задает конечную остановку для маршрута в БД
+    for (auto& [bus_name, info] : buses) {
+        if (Bus* bus = db.FindRoute(bus_name)) {
+            if (Stop* stop = db.FindStop(info.final_stop)) {
+                bus->final_stop = stop;
+            }
+        }
     }
-    
-    json::Array items;
-    double total_time = 0.;
-    // Цикл по каждому элементу маршрута
-    for (auto* route : *route_data) {
-        // СОздание словаря для типа Wait
-        items.push_back(json::Builder{}.StartDict()
-            .Key("type"s).Value("Wait"s)
-            .Key("stop_name"s).Value(route->from->stop_title)
-            .Key("time"s).Value(route->route_time.waiting_time / 60.)
-            .EndDict().Build().AsDict()
-        );
-        
-        // Добавление времени ожидания
-        total_time += route->route_time.waiting_time / 60.;
-        
-        // Создание словаря для типа Bus
-        items.push_back(json::Builder{}.StartDict()
-            .Key("type"s).Value("Bus"s)
-            .Key("bus"s).Value(route->route->bus_number)
-            .Key("span_count"s).Value(route->route_time.stops_number)
-            .Key("time"s).Value(route->route_time.travel_time / 60.)
-            .EndDict().Build().AsDict()
-        );
-        
-        // Добавление времени в пути
-        total_time += route->route_time.travel_time / 60.;
-    }
-    
-    // Формирование конечного результата
-    return json::Builder{}.StartDict()
-        .Key("request_id"s).Value(id)
-        .Key("total_time"s).Value(total_time)
-        .Key("items"s).Value(items)
-        .EndDict().Build().AsDict();
-}
-
-RenderSettings JsonReader::RendererDataProcessing(const json::Dict& settings) {
-    RenderSettings renderer;
-    
-    // Получение ширины, высоты и отступа из настроек
-    renderer.width = settings.at("width"s).AsDouble();
-    renderer.height = settings.at("height"s).AsDouble();
-    renderer.padding = settings.at("padding"s).AsDouble();
-    
-    // Получение толщины линии и радиуса остановки из настроек
-    renderer.line_width = settings.at("line_width"s).AsDouble();
-    renderer.stop_radius = settings.at("stop_radius"s).AsDouble();
-    
-    // Получение размера шрифта и смещения для подписей маршрутов из настроек
-    renderer.bus_label_font_size = settings.at("bus_label_font_size"s).AsInt();
-    renderer.bus_label_offset = svg::Point(
-        settings.at("bus_label_offset"s).AsArray()[0].AsDouble(),
-        settings.at("bus_label_offset"s).AsArray()[1].AsDouble()
-    );
-    
-    // Получение размера шрифта и смещения для подписей остановок из настроек
-    renderer.stop_label_font_size = settings.at("stop_label_font_size"s).AsInt();
-    renderer.stop_label_offset = svg::Point(
-        settings.at("stop_label_offset"s).AsArray()[0].AsDouble(),
-        settings.at("stop_label_offset"s).AsArray()[1].AsDouble()
-    );
-    
-    // Получение ширины и цвета подложки/фона из настроек
-    renderer.underlayer_width = settings.at("underlayer_width"s).AsDouble();
-    renderer.underlayer_color = ColorProcessing(settings.at("underlayer_color"s));
-    
-    // Получение палитры цветов из настроек
-    for (const auto& color : settings.at("color_palette"s).AsArray()) {
-        renderer.color_palette.push_back(ColorProcessing(color));
-    }
-    
-    return renderer;
-}
-
-svg::Color JsonReader::ColorProcessing(const json::Node& color) {
-    // Если цвет представлен в виде строки, то возвращаем его без изменений
-    if (color.IsString()) {
-        return color.AsString();
-    }
-    
-    // Если массив из трех элементов - RGB
-    if (color.AsArray().size() == 3) {
-        return svg::Rgb(
-            color.AsArray()[0].AsInt(),
-            color.AsArray()[1].AsInt(),
-            color.AsArray()[2].AsInt()
-        );
-    }
-    
-    // Иначе - RGBA
-    return svg::Rgba(
-        color.AsArray()[0].AsInt(),
-        color.AsArray()[1].AsInt(),
-        color.AsArray()[2].AsInt(),
-        color.AsArray()[3].AsDouble()
-    );
 }
 
 } // end of namespace transport
