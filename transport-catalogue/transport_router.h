@@ -9,22 +9,34 @@
 
 namespace transport {
 
+// Структура, описывающая настройки маршрута
+struct RouteSettings {
+    // Время ожидания автобуса на остановке
+    int bus_wait_time;
+    // Скорость движения автобуса
+    double bus_velocity;
+};
+
+// Объявление синонимов
+using GraphData = graph::DirectedWeightedGraph<double>;
+using VertexData = std::map<std::string, graph::VertexId>;
+    
 class Router {
 public:
     Router() = default;
 
     // Конструктор, принимающий узел с настройками
-    Router(const json::Node& settings);
+    Router(const RouteSettings& settings);
     // Конструктор, принимающий узел с настройками и каталог
-    Router(const json::Node& settings, const Catalogue& db);
+    Router(const RouteSettings& settings, const Catalogue& db);
     // Конструктор, принимающий узел с настройками, граф и идентификаторы остановок
-    Router(const json::Node& settings, graph::DirectedWeightedGraph<double> graph, std::map<std::string, graph::VertexId> vertex); 
+    Router(const RouteSettings& settings, GraphData graph, VertexData vertex); 
 
     // Установка графа и вершин остановок
-    void SetGraph(graph::DirectedWeightedGraph<double>&& graph, std::map<std::string, graph::VertexId>&& vertex);
+    void SetGraph(GraphData&& graph, VertexData&& vertex);
 
     // Построение графа на основе каталога
-    const graph::DirectedWeightedGraph<double>& BuildGraph(const Catalogue& db);
+    const GraphData& BuildGraph(const Catalogue& db);
 
     // Получение массива элементов ребер графа
     json::Node GetEdgesItems(const std::vector<graph::EdgeId>& edges) const;
@@ -36,10 +48,10 @@ public:
     size_t GetGraphVertexCount();
 
     // Получение идентификаторов остановок
-    const std::map<std::string, graph::VertexId>& GetStopsVertex() const;
+    const VertexData& GetStopsVertex() const;
 
     // Получение графа
-    const graph::DirectedWeightedGraph<double>& GetGraph() const;
+    const GraphData& GetGraph() const;
 
     // Получение настроек
     json::Node GetSettings() const;
@@ -55,18 +67,12 @@ public:
     }
 
 private:
-    // Установка настроек
-    void SetSettings(const json::Node& settings_node);
-    
-    // Время ожидания автобуса
-    int bus_wait_time_ = 0;
-    // Скорость автобуса
-    double bus_velocity_ = 0;
+    RouteSettings route_settings_;
     
     // Граф
-    graph::DirectedWeightedGraph<double> graph_; 
+    GraphData graph_; 
     // Идентификаторы остановок и их вершины
-    std::map<std::string, graph::VertexId> stops_vertex_; 
+    VertexData stops_vertex_; 
     // Указатель на объект класса Router
     graph::Router<double>* router_ = nullptr; 
 };

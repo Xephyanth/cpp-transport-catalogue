@@ -11,51 +11,35 @@ namespace transport {
 
 using namespace std::literals;
 
-Router::Router(const json::Node& settings) {
-    if (settings.IsNull()) {
-        return;
-    }
-    // Устанавление настроек маршрутизатора
-    SetSettings(settings);
-}
+Router::Router(const RouteSettings& settings) : route_settings_(settings) {}
 
 // Перегруженный конструктор для построения графов на основе каталога 
-Router::Router(const json::Node& settings, const Catalogue& db) {
-    if (settings.IsNull()) {
-        return;
-    }
-
-    SetSettings(settings);
+Router::Router(const RouteSettings& settings, const Catalogue& db) : route_settings_(settings) {
     BuildGraph(db);
 }
 
 // Перегруженный конструктор для построения графов и создания нового объекта
-Router::Router(const json::Node& settings, graph::DirectedWeightedGraph<double> graph,
-    std::map<std::string, graph::VertexId> vertex) : graph_(graph), stops_vertex_(vertex)
+Router::Router(const RouteSettings& settings, GraphData graph, VertexData vertex)
+    : route_settings_(settings), graph_(graph), stops_vertex_(vertex)
 {
-    if (settings.IsNull()) {
-        return;
-    }
-    
-    SetSettings(settings);
     router_ = new graph::Router<double>(graph_);
 }
 
 // Метод устанавливает новый граф и карту остановок
-void Router::SetGraph(graph::DirectedWeightedGraph<double>&& graph, std::map<std::string, graph::VertexId>&& vertex) {
+void Router::SetGraph(GraphData&& graph, VertexData&& vertex) {
     graph_ = std::move(graph);
     stops_vertex_ = std::move(vertex);
     router_ = new graph::Router<double>(graph_);
 }
 
 // Метод строит граф маршрутов на основе транспортного каталога
-const graph::DirectedWeightedGraph<double>& Router::BuildGraph(const Catalogue& db) {
+const GraphData& Router::BuildGraph(const Catalogue& db) {
     const std::map<std::string_view, Stop*>& all_stops = db.GetSortedAllStops();
     const std::map<std::string_view, Bus*>& all_buses = db.GetSortedAllBuses();
     
     // Создание графа с удвоенным количеством вершин
-    graph::DirectedWeightedGraph<double> stops_graph(all_stops.size() * 2);
-    std::map<std::string, graph::VertexId> stop_vertex;
+    GraphData stops_graph(all_stops.size() * 2);
+    VertexData stop_vertex;
     graph::VertexId vertex_id = 0;
     
     // Добавление вершин и ребра, связанных с остановками
@@ -63,8 +47,8 @@ const graph::DirectedWeightedGraph<double>& Router::BuildGraph(const Catalogue& 
         stop_vertex[stop->stop_title] = vertex_id;
         stops_graph.AddEdge({ stop->stop_title, 0,
                               vertex_id, ++vertex_id,
-                              static_cast<double>(bus_wait_time_) }
-                           );
+                              static_cast<double>(route_settings_.bus_wait_time)
+                           });
         ++vertex_id;
     }
     stops_vertex_ = std::move(stop_vertex);
@@ -90,7 +74,7 @@ const graph::DirectedWeightedGraph<double>& Router::BuildGraph(const Catalogue& 
                          // Добавление ребра графа для автобуса
                          stops_graph.AddEdge({ bus->bus_number, j - i, stops_vertex_.at(stop_from->stop_title) + 1,
                                                stops_vertex_.at(stop_to->stop_title),
-                                               static_cast<double>(dist_sum) / (bus_velocity_ * (100.0 / 6.0)) }
+                                               static_cast<double>(dist_sum) / (route_settings_.bus_velocity * (100.0 / 6.0)) }
                                             );
                          
                          // Если автобус не является кольцевым и достигнута конечная остановка,
@@ -147,28 +131,22 @@ size_t Router::GetGraphVertexCount() {
     return graph_.GetVertexCount();
 }
 
-// Метод возвращает соответствия идентификаторов остановок и их названий
-const std::map<std::string, graph::VertexId>& Router::GetStopsVertex() const {
-    return stops_vertex_;
+// Метод возвращает константную ссылку на объект и позволяет получить доступ к построенному графу
+const GraphData& Router::GetGraph() const {
+    return graph_;
 }
 
-// Метод возвращает константную ссылку на объект и позволяет получить доступ к построенному графу
-const graph::DirectedWeightedGraph<double>& Router::GetGraph() const {
-    return graph_;
+// Метод возвращает соответствия идентификаторов остановок и их названий
+const VertexData& Router::GetStopsVertex() const {
+    return stops_vertex_;
 }
 
 // Метод возвращает объект, содержащий настройки маршрутизатора
 json::Node Router::GetSettings() const {
     return json::Builder{}.StartDict()
-        .Key("bus_wait_time"s).Value(bus_wait_time_)
-        .Key("bus_velocity"s).Value(bus_velocity_)
+        .Key("bus_wait_time"s).Value(route_settings_.bus_wait_time)
+        .Key("bus_velocity"s).Value(route_settings_.bus_velocity)
         .EndDict().Build();
-}
-
-// Метод устанавливает настройки маршрутизатора
-void Router::SetSettings(const json::Node& settings) {
-    bus_wait_time_ = settings.AsDict().at("bus_wait_time"s).AsInt();
-    bus_velocity_ = settings.AsDict().at("bus_velocity"s).AsDouble();
 }
 
 /*
@@ -186,7 +164,7 @@ serialize::RouterSettings Router::RouterSettingSerialize(const json::Node& route
     return result;
 }
 
-serialize::Graph GraphSerialize(const graph::DirectedWeightedGraph<double>& g) {
+serialize::Graph GraphSerialize(const GraphData& g) {
     serialize::Graph result;
     
     size_t vertex_count = g.GetVertexCount();

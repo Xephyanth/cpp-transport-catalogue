@@ -67,69 +67,80 @@ void RouteDeserialize(Catalogue& db, const serialize::TransportCatalogue& data) 
 
 namespace {
 
-json::Node PointDeserialize(const serialize::Point& point) {
-    return json::Node(json::Array{ point.x(), point.y() });
+svg::Point PointDeserialize(const serialize::Point& point) {
+    return svg::Point({ point.x(), point.y() });
 }
 
-json::Node ColorDeserialize(const serialize::Color& color) {
+svg::Color ColorDeserialize(const serialize::Color& color) {
     if (!color.name().empty()) {
-        return json::Node(color.name());
+        return svg::Color(color.name());
     }
     else if (color.has_rgb()) {
         const serialize::RGB& rgb = color.rgb();
         
-        return json::Node(json::Array{ rgb.red(), rgb.green(), rgb.blue() });
+        return svg::Rgb({ static_cast<uint8_t>(rgb.red()),
+                          static_cast<uint8_t>(rgb.green()),
+                          static_cast<uint8_t>(rgb.blue())
+                        });
     }
     else if (color.has_rgba()) {
         const serialize::RGBA& rgba = color.rgba();
         
-        return json::Node(json::Array{ rgba.red(), rgba.green(), rgba.blue(), rgba.opacity() });
+        return svg::Rgba({ static_cast<uint8_t>(rgba.red()),
+                           static_cast<uint8_t>(rgba.green()),
+                           static_cast<uint8_t>(rgba.blue()),
+                           rgba.opacity()
+                        });
     }
     else {
-        return json::Node("none"s);
+        return svg::Color("none"s);
     }
 }
 
-json::Node ColorDeserialize(const google::protobuf::RepeatedPtrField<serialize::Color>& cv) {
-    json::Array result;
+std::vector<svg::Color> ColorDeserialize(const google::protobuf::RepeatedPtrField<serialize::Color>& cv) {
+    std::vector<svg::Color> result;
     result.reserve(cv.size());
     
     for (const auto& c : cv) {
         result.emplace_back(ColorDeserialize(c));
     }
     
-    return json::Node(std::move(result));
+    return std::move(result);
 }
 
 } // end of namespace
 
-json::Node RenderSettingsDeserialize(const serialize::RenderSettings& rs) {
-    return json::Builder{}.StartDict()
-        .Key("width"s).Value( rs.width() )
-        .Key("height"s).Value( rs.height() )
-        .Key("padding"s).Value( rs.padding() )
-        
-        .Key("stop_radius"s).Value( rs.stop_radius() )
-        .Key("line_width"s).Value( rs.line_width() )
-        
-        .Key("bus_label_font_size"s).Value( rs.bus_label_font_size() )
-        .Key("bus_label_offset"s).Value( PointDeserialize(rs.bus_label_offset()) )
-        
-        .Key("stop_label_font_size"s).Value( rs.stop_label_font_size() )
-        .Key("stop_label_offset"s).Value( PointDeserialize(rs.stop_label_offset()) )
-        
-        .Key("underlayer_color"s).Value( ColorDeserialize(rs.underlayer_color()) )
-        .Key("underlayer_width"s).Value( rs.underlayer_width() )
-        
-        .Key("color_palette"s).Value( ColorDeserialize(rs.color_palette()) )
-        .EndDict().Build();
+MapRenderer RenderSettingsDeserialize(const serialize::RenderSettings& rs) {
+    RenderSettings result;
+    
+    result.width = rs.width();
+    result.height = rs.height();
+    result.padding = rs.padding();
+    
+    result.stop_radius = rs.stop_radius();
+    result.line_width = rs.line_width();
+    
+    result.bus_label_font_size = rs.bus_label_font_size();
+    result.bus_label_offset = PointDeserialize(rs.bus_label_offset());
+    
+    result.stop_label_font_size = rs.stop_label_font_size();
+    result.stop_label_offset = PointDeserialize(rs.stop_label_offset());
+    
+    result.underlayer_color = ColorDeserialize(rs.underlayer_color());
+    result.underlayer_width = rs.underlayer_width();
+    
+    result.color_palette = ColorDeserialize(rs.color_palette());
+    
+    return result;
 }
 
-json::Node RouterSettingsDeserialize(const serialize::Router& router) {
-    return json::Builder{}.StartDict()
-        .Key("bus_wait_time"s).Value( router.router_settings().bus_wait_time() )
-        .Key("bus_velocity"s).Value( router.router_settings().bus_velocity() )
-        .EndDict().Build();
+Router RouterSettingsDeserialize(const serialize::Router& router) {
+    RouteSettings result;
+    
+    result.bus_wait_time = router.router_settings().bus_wait_time();
+    result.bus_velocity = router.router_settings().bus_velocity();
+    
+    return result;
 }
 
 graph::DirectedWeightedGraph<double> GraphDeserialize(const serialize::Router& router) {
@@ -166,10 +177,11 @@ std::map<std::string, graph::VertexId> VertexDeserialize(const serialize::Router
 }
 
 DeserializeData DeserializeDB(std::istream& input) {
+    Catalogue db;
+    
     serialize::TransportCatalogue data;
     data.ParseFromIstream(&input);
     
-    Catalogue db;
     MapRenderer renderer(RenderSettingsDeserialize( data.render_settings() ));
     Router router(RouterSettingsDeserialize( data.router() ));
     

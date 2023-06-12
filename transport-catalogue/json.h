@@ -121,9 +121,7 @@ inline bool operator!=(const Node& lhs, const Node& rhs) {
 
 class Document {
 public:
-    explicit Document(Node root)
-        : root_(std::move(root)) {
-    }
+    explicit Document(Node root) : root_(std::move(root)) {}
 
     const Node& GetRoot() const {
         return root_;

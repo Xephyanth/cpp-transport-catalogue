@@ -19,70 +19,7 @@ svg::Point SphereProjector::operator()(geo::Coordinates coords) const {
 
 // MapRenderer
 
-// Вспомогательная функция для получения цветовой палитры
-svg::Color ColorProcessing(const json::Node& color) {
-    // Если цвет представлен в виде строки, то возвращаем его без изменений
-    if (color.IsString()) {
-        return color.AsString();
-    }
-    
-    // Если массив из трех элементов - RGB
-    if (color.AsArray().size() == 3) {
-        return svg::Rgb(
-            color.AsArray()[0].AsInt(),
-            color.AsArray()[1].AsInt(),
-            color.AsArray()[2].AsInt()
-        );
-    }
-    
-    // Иначе - RGBA
-    return svg::Rgba(
-        color.AsArray()[0].AsInt(),
-        color.AsArray()[1].AsInt(),
-        color.AsArray()[2].AsInt(),
-        color.AsArray()[3].AsDouble()
-    );
-}
-
-MapRenderer::MapRenderer(const json::Node& render_settings) {
-    if (render_settings.IsNull()) {
-        return;
-    }
-    
-    const json::Dict& settings = render_settings.AsDict();
-    
-    // Получение ширины, высоты и отступа из настроек
-    render_settings_.width = settings.at("width"s).AsDouble();
-    render_settings_.height = settings.at("height"s).AsDouble();
-    render_settings_.padding = settings.at("padding"s).AsDouble();
-    
-    // Получение толщины линии и радиуса остановки из настроек
-    render_settings_.stop_radius = settings.at("stop_radius"s).AsDouble();
-    render_settings_.line_width = settings.at("line_width"s).AsDouble();
-    
-    // Получение размера шрифта и смещения для подписей маршрутов из настроек
-    render_settings_.bus_label_font_size = settings.at("bus_label_font_size"s).AsInt();
-    render_settings_.bus_label_offset = svg::Point(
-        settings.at("bus_label_offset"s).AsArray()[0].AsDouble(),
-        settings.at("bus_label_offset"s).AsArray()[1].AsDouble()
-    );
-    
-    // Получение размера шрифта и смещения для подписей остановок из настроек
-    render_settings_.stop_label_font_size = settings.at("stop_label_font_size"s).AsInt();
-    render_settings_.stop_label_offset = svg::Point(
-        settings.at("stop_label_offset"s).AsArray()[0].AsDouble(),
-        settings.at("stop_label_offset"s).AsArray()[1].AsDouble()
-    );
-    
-    // Получение ширины и цвета подложки/фона из настроек
-    render_settings_.underlayer_color = ColorProcessing(settings.at("underlayer_color"s));
-    render_settings_.underlayer_width = settings.at("underlayer_width"s).AsDouble();
-    
-    // Получение палитры цветов из настроек
-    for (const auto& color : settings.at("color_palette"s).AsArray()) {
-        render_settings_.color_palette.push_back(ColorProcessing(color));
-    }
-}
+MapRenderer::MapRenderer(const RenderSettings& render_settings) : render_settings_(render_settings) {}
 
 svg::Document MapRenderer::GetSVG(const std::map<std::string_view, Bus*>& buses) const {
     std::map<std::string_view, Stop*> all_stops;

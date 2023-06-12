@@ -1,6 +1,8 @@
 #pragma once
 
 #include "json.h"
+#include "map_renderer.h"
+#include "transport_router.h"
 #include "transport_catalogue.h"
 
 namespace transport {
@@ -8,26 +10,31 @@ namespace transport {
 class JsonReader {
 public:
     JsonReader(json::Document data) : data_(data) {}
-
+    
     // Возвращает узел "base_requests" из JSON-документа
-    const json::Node& GetBaseRequest() const;
+    const json::Node& GetBaseRequestData() const;
     // Возвращает узел "stat_requests"
-    const json::Node& GetStatRequest() const;
+    const json::Node& GetStatRequestData() const;
     // Возвращает узел "render_settings"
-    const json::Node& GetRenderSettings() const;
+    const json::Node& GetRenderSettingsData() const;
     // Возвращает узел "routing_settings"
-    const json::Node& GetRoutingSettings() const;
+    const json::Node& GetRoutingSettingsData() const;
     // Возвращает узел "serialization_settings"
-    const json::Node& GetSerializationSettings() const;
+    const json::Node& GetSerializationSettingsData() const;
 
     // Заполнение базы данных из JSON-документа
     void ImportData(Catalogue& db) const;
 
+    // Метод устанавливает настройки визуализации
+    MapRenderer SetRenderSettings(const json::Node& render_settings);
+    // Метод устанавливает настройки маршрутизатора
+    RouteSettings SetRouterSettings(const json::Node& router_settings);
+    
 private:
     // JSON-документ, содержащий все входные данные
     json::Document data_;
-
-    // Вспомогательные типы данных
+    
+    // Объявление синонимов
     using StopsDist = std::unordered_map<std::string_view, std::unordered_map<std::string_view, int>>;
     using BusesInfo = std::unordered_map<std::string_view, BusRoute>;
 

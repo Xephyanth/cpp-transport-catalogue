@@ -27,10 +27,10 @@ int main(int argc, char* argv[]) {
         transport::JsonReader data(json::Load(std::cin));
         data.ImportData(db);
         
-        transport::MapRenderer renderer(data.GetRenderSettings());
-        transport::Router router(data.GetRoutingSettings(), db);
+        transport::MapRenderer renderer(data.SetRenderSettings(data.GetRenderSettingsData()));
+        transport::Router router(data.SetRouterSettings(data.GetRoutingSettingsData()), db);
         
-        std::ofstream fout(data.GetSerializationSettings().AsDict().at("file"s).AsString(), std::ios::binary);
+        std::ofstream fout(data.GetSerializationSettingsData().AsDict().at("file"s).AsString(), std::ios::binary);
         if (fout.is_open()) {
             SerializeDB(db, renderer, router, fout);
         }
@@ -40,14 +40,14 @@ int main(int argc, char* argv[]) {
     }
     else if (mode == "process_requests"sv) {
         transport::JsonReader data(json::Load(std::cin));
-        std::ifstream db_file(data.GetSerializationSettings().AsDict().at("file"s).AsString(), std::ios::binary);
+        std::ifstream db_file(data.GetSerializationSettingsData().AsDict().at("file"s).AsString(), std::ios::binary);
         
         if (db_file) {
             auto [db, renderer, router, graph, vertex] = DeserializeDB(db_file);
             
             router.SetGraph(std::move(graph), std::move(vertex));
             transport::RequestHandler handler(db, renderer, router);
-            handler.DatabaseRespond(data.GetStatRequest(), std::cout);
+            handler.DatabaseRespond(data.GetStatRequestData(), std::cout);
         }
         else {
             throw "File opening error";

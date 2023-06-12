@@ -90,7 +90,8 @@ private:
 class MapRenderer {
 public:
     MapRenderer() = default;
-    MapRenderer(const json::Node& render_settings);
+    
+    MapRenderer(const RenderSettings& render_settings);
 
     // Метод для получения SVG-документа на основе карты маршрутов
     svg::Document GetSVG(const std::map<std::string_view, Bus*>& buses) const;

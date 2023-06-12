@@ -4,23 +4,23 @@ namespace transport {
 
 using namespace std::literals;
 
-const json::Node& JsonReader::GetBaseRequest() const {
+const json::Node& JsonReader::GetBaseRequestData() const {
     return data_.GetRoot().AsDict().at("base_requests"s);
 }
 
-const json::Node& JsonReader::GetStatRequest() const {
+const json::Node& JsonReader::GetStatRequestData() const {
     return data_.GetRoot().AsDict().at("stat_requests"s);
 }
 
-const json::Node& JsonReader::GetRenderSettings() const {
+const json::Node& JsonReader::GetRenderSettingsData() const {
     return data_.GetRoot().AsDict().at("render_settings"s);
 }
 
-const json::Node& JsonReader::GetRoutingSettings() const {
+const json::Node& JsonReader::GetRoutingSettingsData() const {
     return data_.GetRoot().AsDict().at("routing_settings"s);
 }
 
-const json::Node& JsonReader::GetSerializationSettings() const {
+const json::Node& JsonReader::GetSerializationSettingsData() const {
     return data_.GetRoot().AsDict().at("serialization_settings"s);
 }
 
@@ -28,7 +28,7 @@ void JsonReader::ImportData(Catalogue& db) const {
     StopsDist stops_distance; // Расстояния между остановками
     BusesInfo buses;          // Информация о маршрутах
     
-    const json::Array& arr = GetBaseRequest().AsArray();
+    const json::Array& arr = GetBaseRequestData().AsArray();
     for (const auto& request_node : arr) {
         const json::Dict& request = request_node.AsDict();
         // Извлечение типа запроса
@@ -48,6 +48,84 @@ void JsonReader::ImportData(Catalogue& db) const {
     SetStopsDistances(db, stops_distance); // Установка расстояния между остановками
     BusesAdd(db, buses);                   // Добавление маршрутов
     SetFinalStop(db, buses);               // Установка конечных остановок
+}
+
+// Вспомогательная функция для получения цветовой палитры
+svg::Color ColorProcessing(const json::Node& color) {
+    // Если цвет представлен в виде строки, то возвращаем его без изменений
+    if (color.IsString()) {
+        return color.AsString();
+    }
+    
+    // Если массив из трех элементов - RGB
+    if (color.AsArray().size() == 3) {
+        return svg::Rgb(
+            color.AsArray()[0].AsInt(),
+            color.AsArray()[1].AsInt(),
+            color.AsArray()[2].AsInt()
+        );
+    }
+    
+    // Иначе - RGBA
+    return svg::Rgba(
+        color.AsArray()[0].AsInt(),
+        color.AsArray()[1].AsInt(),
+        color.AsArray()[2].AsInt(),
+        color.AsArray()[3].AsDouble()
+    );
+}
+
+MapRenderer JsonReader::SetRenderSettings(const json::Node& render_settings) {
+    RenderSettings result;
+    
+    if (render_settings.IsNull()) {
+        return result;
+    }
+    
+    const json::Dict& settings = render_settings.AsDict();
+    
+    // Получение ширины, высоты и отступа из настроек
+    result.width = settings.at("width"s).AsDouble();
+    result.height = settings.at("height"s).AsDouble();
+    result.padding = settings.at("padding"s).AsDouble();
+    
+    // Получение толщины линии и радиуса остановки из настроек
+    result.stop_radius = settings.at("stop_radius"s).AsDouble();
+    result.line_width = settings.at("line_width"s).AsDouble();
+    
+    // Получение размера шрифта и смещения для подписей маршрутов из настроек
+    result.bus_label_font_size = settings.at("bus_label_font_size"s).AsInt();
+    result.bus_label_offset = svg::Point(
+        settings.at("bus_label_offset"s).AsArray()[0].AsDouble(),
+        settings.at("bus_label_offset"s).AsArray()[1].AsDouble()
+    );
+    
+    // Получение размера шрифта и смещения для подписей остановок из настроек
+    result.stop_label_font_size = settings.at("stop_label_font_size"s).AsInt();
+    result.stop_label_offset = svg::Point(
+        settings.at("stop_label_offset"s).AsArray()[0].AsDouble(),
+        settings.at("stop_label_offset"s).AsArray()[1].AsDouble()
+    );
+    
+    // Получение ширины и цвета подложки/фона из настроек
+    result.underlayer_color = ColorProcessing(settings.at("underlayer_color"s));
+    result.underlayer_width = settings.at("underlayer_width"s).AsDouble();
+    
+    // Получение палитры цветов из настроек
+    for (const auto& color : settings.at("color_palette"s).AsArray()) {
+        result.color_palette.push_back(ColorProcessing(color));
+    }
+    
+    return result;
+}
+
+RouteSettings JsonReader::SetRouterSettings(const json::Node& router_settings) {
+    RouteSettings result;
+    
+    result.bus_wait_time = router_settings.AsDict().at("bus_wait_time"s).AsInt();
+    result.bus_velocity = router_settings.AsDict().at("bus_velocity"s).AsDouble();
+    
+    return result;
 }
 
 void JsonReader::ParseStop(Catalogue& db, const json::Dict& request, StopsDist& stops_distance) const {
